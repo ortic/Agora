@@ -180,10 +180,11 @@ async fn user_from_session(state: &AppState, token: &str) -> Result<Option<User>
             .bind(token_hash(token))
             .execute(&state.db)
             .await;
-        let _ = sqlx::query("UPDATE users SET last_active_at = now() WHERE id = $1 AND (last_active_at IS NULL OR last_active_at < now() - interval '5 minutes')")
-            .bind(u.id)
-            .execute(&state.db)
-            .await;
+        let _ =
+            sqlx::query("UPDATE users SET last_active_at = now() WHERE id = $1 AND (last_active_at IS NULL OR last_active_at < now() - interval '5 minutes')")
+                .bind(u.id)
+                .execute(&state.db)
+                .await;
     }
     Ok(user)
 }
@@ -201,10 +202,12 @@ pub async fn user_from_api_token(state: &AppState, token: &str) -> Result<Option
     .fetch_optional(&state.db)
     .await?;
     if user.is_some() {
-        let _ = sqlx::query("UPDATE api_tokens SET last_used_at = now() WHERE token_hash = $1 AND (last_used_at IS NULL OR last_used_at < now() - interval '1 minute')")
-            .bind(token_hash(token))
-            .execute(&state.db)
-            .await;
+        let _ = sqlx::query(
+            "UPDATE api_tokens SET last_used_at = now() WHERE token_hash = $1 AND (last_used_at IS NULL OR last_used_at < now() - interval '1 minute')",
+        )
+        .bind(token_hash(token))
+        .execute(&state.db)
+        .await;
     }
     Ok(user)
 }

@@ -194,7 +194,8 @@ pub async fn fetch(raw_url: &str, ws: &WebSearch, allow_private: bool) -> Result
             }
         }
         let raw = String::from_utf8_lossy(&body).into_owned();
-        let (title, text) = if ctype.contains("html") || (ctype.is_empty() && raw.trim_start().starts_with('<')) { html_to_text(&raw) } else { (String::new(), raw) };
+        let (title, text) =
+            if ctype.contains("html") || (ctype.is_empty() && raw.trim_start().starts_with('<')) { html_to_text(&raw) } else { (String::new(), raw) };
         let truncated = text.chars().count() > MAX_PAGE_CHARS;
         let text: String = text.chars().take(MAX_PAGE_CHARS).collect();
         return Ok(Page { url: url.to_string(), title, text, truncated });
@@ -239,7 +240,26 @@ pub fn html_to_text(html: &str) -> (String, String) {
             }
             if matches!(
                 name.as_str(),
-                "br" | "p" | "div" | "li" | "tr" | "h1" | "h2" | "h3" | "h4" | "h5" | "h6" | "section" | "article" | "header" | "footer" | "pre" | "blockquote" | "table" | "ul" | "ol" | "nav"
+                "br" | "p"
+                    | "div"
+                    | "li"
+                    | "tr"
+                    | "h1"
+                    | "h2"
+                    | "h3"
+                    | "h4"
+                    | "h5"
+                    | "h6"
+                    | "section"
+                    | "article"
+                    | "header"
+                    | "footer"
+                    | "pre"
+                    | "blockquote"
+                    | "table"
+                    | "ul"
+                    | "ol"
+                    | "nav"
             ) {
                 out.push('\n');
                 if !closing && name == "li" {

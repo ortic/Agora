@@ -370,12 +370,7 @@ pub async fn sign_in(state: &AppState, provider: &Provider, ext: External) -> Re
         Some((id, _)) => id,
         None => {
             let by_email: Option<(Uuid, String, String)> = match &email {
-                Some(e) if trusted => {
-                    sqlx::query_as("SELECT id, status, role FROM users WHERE lower(email) = $1")
-                        .bind(e)
-                        .fetch_optional(&state.db)
-                        .await?
-                }
+                Some(e) if trusted => sqlx::query_as("SELECT id, status, role FROM users WHERE lower(email) = $1").bind(e).fetch_optional(&state.db).await?,
                 _ => None,
             };
             let id = match by_email {
@@ -407,8 +402,15 @@ pub async fn sign_in(state: &AppState, provider: &Provider, ext: External) -> Re
                         .bind(role)
                         .execute(&state.db)
                         .await?;
-                    audit::log(state, None, None, "user.sso_provisioned", Some(("user", id.to_string())), json!({"provider": provider.id(), "email": email, "role": role}))
-                        .await;
+                    audit::log(
+                        state,
+                        None,
+                        None,
+                        "user.sso_provisioned",
+                        Some(("user", id.to_string())),
+                        json!({"provider": provider.id(), "email": email, "role": role}),
+                    )
+                    .await;
                     id
                 }
             };
@@ -441,20 +443,17 @@ async fn sync_groups(state: &AppState, provider_id: &str, user: Uuid, groups: &[
         let ext_ref = format!("{prefix}{g}");
         // only groups this provider created are reused; an existing local group (or another
         // provider's) with the same name is never taken over — ours gets a suffix instead
-        let mut id: Option<Uuid> =
-            sqlx::query_scalar("SELECT id FROM groups WHERE external_ref = $1").bind(&ext_ref).fetch_optional(&state.db).await?;
+        let mut id: Option<Uuid> = sqlx::query_scalar("SELECT id FROM groups WHERE external_ref = $1").bind(&ext_ref).fetch_optional(&state.db).await?;
         for name in [g.to_string(), format!("{g} ({provider_id})")] {
             if id.is_some() {
                 break;
             }
-            id = sqlx::query_scalar(
-                "INSERT INTO groups (id, name, external_ref) VALUES ($1, $2, $3) ON CONFLICT ((lower(name))) DO NOTHING RETURNING id",
-            )
-            .bind(new_id())
-            .bind(&name)
-            .bind(&ext_ref)
-            .fetch_optional(&state.db)
-            .await?;
+            id = sqlx::query_scalar("INSERT INTO groups (id, name, external_ref) VALUES ($1, $2, $3) ON CONFLICT ((lower(name))) DO NOTHING RETURNING id")
+                .bind(new_id())
+                .bind(&name)
+                .bind(&ext_ref)
+                .fetch_optional(&state.db)
+                .await?;
         }
         if let Some(id) = id {
             wanted.push(id);
@@ -486,7 +485,13 @@ pub fn browser_cookie(value: &str, cross_site_post: bool, secure: bool) -> Strin
 }
 
 /// After a successful sign-in: `(Set-Cookie, redirect)` with a new session; audited.
-pub async fn session_or_challenge(state: &AppState, user: Uuid, client: &crate::auth::Client, next: &str, provider: &str) -> Result<(String, String), SignInError> {
+pub async fn session_or_challenge(
+    state: &AppState,
+    user: Uuid,
+    client: &crate::auth::Client,
+    next: &str,
+    provider: &str,
+) -> Result<(String, String), SignInError> {
     let cookie = crate::auth::create_session(state, user, client).await.map_err(|e| anyhow::anyhow!("{e}"))?;
     let u = crate::routes::auth::load_user(state, user).await.map_err(|e| anyhow::anyhow!("{e}"))?;
     audit::log(state, Some(&u), Some(client), "auth.login", None, json!({ "method": "sso", "provider": provider })).await;

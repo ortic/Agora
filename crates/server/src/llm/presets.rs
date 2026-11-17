@@ -40,5 +40,11 @@ pub fn cache_write_price(input: f64) -> f64 {
 
 /// Claude models of the 4.6 generation and later think adaptively; older ones don't take it.
 pub fn claude_thinks(model: &str) -> bool {
-    !(model.contains("haiku-4") || model.contains("-3-") || model.starts_with("claude-3") || model.contains("4-5") || model.contains("4-1") || model.contains("-4-0") || model.ends_with("-4"))
+    !(model.contains("haiku-4")
+        || model.contains("-3-")
+        || model.starts_with("claude-3")
+        || model.contains("4-5")
+        || model.contains("4-1")
+        || model.contains("-4-0")
+        || model.ends_with("-4"))
 }

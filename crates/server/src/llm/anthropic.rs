@@ -74,8 +74,7 @@ pub fn body(req: &Request) -> Value {
     if let Some(e) = req.effort.as_deref().filter(|e| !e.is_empty()) {
         body["output_config"] = json!({ "effort": e });
     }
-    let mut tools: Vec<Value> =
-        req.tools.iter().map(|t| json!({ "name": t.name, "description": t.description, "input_schema": t.schema })).collect();
+    let mut tools: Vec<Value> = req.tools.iter().map(|t| json!({ "name": t.name, "description": t.description, "input_schema": t.schema })).collect();
     if let Some(ns) = &req.native_search {
         let mut t = json!({ "type": "web_search_20260209", "name": "web_search", "max_uses": ns.max_uses });
         if !ns.blocked_domains.is_empty() {
@@ -305,7 +304,9 @@ mod tests {
         let msgs = vec![
             Msg::user("hi"),
             Msg::AnthropicRaw {
-                messages: vec![json!({"role": "assistant", "content": [{"type": "thinking", "thinking": "x", "signature": "s"}, {"type": "text", "text": "hello"}]})],
+                messages: vec![
+                    json!({"role": "assistant", "content": [{"type": "thinking", "thinking": "x", "signature": "s"}, {"type": "text", "text": "hello"}]}),
+                ],
                 fallback_text: "hello".into(),
             },
             Msg::user("a"),

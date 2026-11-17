@@ -33,18 +33,13 @@ impl std::ops::Deref for AppState {
 
 impl AppState {
     pub async fn new(config: Config) -> anyhow::Result<Self> {
-        let db = sqlx::postgres::PgPoolOptions::new()
-            .max_connections(30)
-            .acquire_timeout(std::time::Duration::from_secs(10))
-            .connect(&config.database_url)
-            .await?;
+        let db =
+            sqlx::postgres::PgPoolOptions::new().max_connections(30).acquire_timeout(std::time::Duration::from_secs(10)).connect(&config.database_url).await?;
         sqlx::migrate!("./migrations").run(&db).await?;
         sqlx::query("INSERT INTO settings (id) VALUES (true) ON CONFLICT DO NOTHING").execute(&db).await?;
         let providers = crate::sso::load(&config)?;
         let secrets = crate::crypto::Secrets::new(&config.secret_key);
-        Ok(AppState {
-            inner: Arc::new(Inner { db, config, providers, secrets, live: DashMap::new(), shutting_down: Default::default() }),
-        })
+        Ok(AppState { inner: Arc::new(Inner { db, config, providers, secrets, live: DashMap::new(), shutting_down: Default::default() }) })
     }
 }
 

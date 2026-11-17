@@ -99,7 +99,8 @@ pub struct ListQuery {
 
 pub async fn list(State(state): State<AppState>, CurrentUser(user): CurrentUser, Query(q): Query<ListQuery>) -> ApiResult<Json<Value>> {
     let limit = q.limit.unwrap_or(200).clamp(1, 500);
-    let pattern = q.q.as_deref().map(str::trim).filter(|s| !s.is_empty()).map(|s| format!("%{}%", s.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_")));
+    let pattern =
+        q.q.as_deref().map(str::trim).filter(|s| !s.is_empty()).map(|s| format!("%{}%", s.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_")));
     let rows: Vec<(Uuid, String, bool, Option<Uuid>, chrono::DateTime<chrono::Utc>)> = sqlx::query_as(
         "SELECT c.id, c.title, c.pinned, c.model_id, c.updated_at FROM chats c
           WHERE c.user_id = $1 AND c.deleted_at IS NULL
@@ -114,7 +115,9 @@ pub async fn list(State(state): State<AppState>, CurrentUser(user): CurrentUser,
     .fetch_all(&state.db)
     .await?;
     Ok(Json(json!(
-        rows.iter().map(|(id, title, pinned, model, at)| json!({ "id": id, "title": title, "pinned": pinned, "modelId": model, "updatedAt": at })).collect::<Vec<_>>()
+        rows.iter()
+            .map(|(id, title, pinned, model, at)| json!({ "id": id, "title": title, "pinned": pinned, "modelId": model, "updatedAt": at }))
+            .collect::<Vec<_>>()
     )))
 }
 
@@ -161,7 +164,12 @@ pub struct UpdateChat {
     leaf_id: Option<Uuid>,
 }
 
-pub async fn update(State(state): State<AppState>, CurrentUser(user): CurrentUser, Path(id): Path<Uuid>, Json(req): Json<UpdateChat>) -> ApiResult<Json<ChatRow>> {
+pub async fn update(
+    State(state): State<AppState>,
+    CurrentUser(user): CurrentUser,
+    Path(id): Path<Uuid>,
+    Json(req): Json<UpdateChat>,
+) -> ApiResult<Json<ChatRow>> {
     let chat = own_chat(&state, &user, id).await?;
     if let Some(t) = &req.title {
         let t = t.trim();
@@ -186,7 +194,8 @@ pub async fn update(State(state): State<AppState>, CurrentUser(user): CurrentUse
         sqlx::query("UPDATE chats SET settings = $2 WHERE id = $1").bind(id).bind(Value::Object(merged)).execute(&state.db).await?;
     }
     if let Some(leaf) = req.leaf_id {
-        let ok: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM messages WHERE id = $1 AND chat_id = $2)").bind(leaf).bind(id).fetch_one(&state.db).await?;
+        let ok: bool =
+            sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM messages WHERE id = $1 AND chat_id = $2)").bind(leaf).bind(id).fetch_one(&state.db).await?;
         if !ok {
             return Err(ApiError::bad("that message isn't in this chat"));
         }
@@ -218,7 +227,13 @@ pub struct SendRequest {
 }
 
 /// `POST /api/chats/{id}/messages`: sends a message and streams the answer (SSE).
-pub async fn send(State(state): State<AppState>, CurrentUser(user): CurrentUser, client: Client, Path(id): Path<Uuid>, Json(req): Json<SendRequest>) -> ApiResult<Response> {
+pub async fn send(
+    State(state): State<AppState>,
+    CurrentUser(user): CurrentUser,
+    client: Client,
+    Path(id): Path<Uuid>,
+    Json(req): Json<SendRequest>,
+) -> ApiResult<Response> {
     let chat = own_chat(&state, &user, id).await?;
     let content = req.content.trim_end().to_string();
     if content.trim().is_empty() {
@@ -326,7 +341,12 @@ pub async fn regenerate(
         .bind(&model.model)
         .execute(&state.db)
         .await?;
-    sqlx::query("UPDATE chats SET leaf_id = $2, model_id = $3, updated_at = now() WHERE id = $1").bind(id).bind(assistant_msg).bind(model.id).execute(&state.db).await?;
+    sqlx::query("UPDATE chats SET leaf_id = $2, model_id = $3, updated_at = now() WHERE id = $1")
+        .bind(id)
+        .bind(assistant_msg)
+        .bind(model.id)
+        .execute(&state.db)
+        .await?;
     audit::log(
         &state,
         Some(&user),
@@ -355,7 +375,8 @@ async fn stream_answer(
     effort: Option<String>,
     title_after: bool,
 ) -> ApiResult<Response> {
-    let effort = effort.filter(|e| matches!(e.as_str(), "low" | "medium" | "high" | "xhigh" | "max")).or_else(|| chat.settings["effort"].as_str().map(String::from));
+    let effort =
+        effort.filter(|e| matches!(e.as_str(), "low" | "medium" | "high" | "xhigh" | "max")).or_else(|| chat.settings["effort"].as_str().map(String::from));
     let first = json!({
         "type": "start",
         "userMessage": load_message(state, user_msg).await?,
@@ -394,7 +415,8 @@ pub async fn follow(State(state): State<AppState>, CurrentUser(user): CurrentUse
         None => {
             // already finished (or on another replica): the stored state
             let events = vec![json!({ "type": "done", "message": m }), json!({ "type": "end" })];
-            let stream = futures::stream::iter(events.into_iter().map(|e| Ok::<_, std::convert::Infallible>(axum::response::sse::Event::default().data(e.to_string()))));
+            let stream =
+                futures::stream::iter(events.into_iter().map(|e| Ok::<_, std::convert::Infallible>(axum::response::sse::Event::default().data(e.to_string()))));
             Ok(Sse::new(stream).into_response())
         }
     }

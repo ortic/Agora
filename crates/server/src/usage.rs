@@ -74,12 +74,11 @@ pub async fn budget(state: &AppState, user_id: Uuid, settings: &Settings) -> Api
     .bind(user_id)
     .fetch_one(&state.db)
     .await?;
-    let spent: f64 = sqlx::query_scalar(
-        "SELECT coalesce(sum(cost_usd), 0)::float8 FROM usage_events WHERE user_id = $1 AND created_at >= date_trunc('month', now())",
-    )
-    .bind(user_id)
-    .fetch_one(&state.db)
-    .await?;
+    let spent: f64 =
+        sqlx::query_scalar("SELECT coalesce(sum(cost_usd), 0)::float8 FROM usage_events WHERE user_id = $1 AND created_at >= date_trunc('month', now())")
+            .bind(user_id)
+            .fetch_one(&state.db)
+            .await?;
     let (limit, source) = match (own, group, settings.default_monthly_budget_usd) {
         (Some(l), _, _) => (Some(l), "user"),
         (None, Some(l), _) => (Some(l), "group"),
@@ -107,10 +106,7 @@ pub async fn check(state: &AppState, user: &User, settings: &Settings) -> ApiRes
     if let Some(limit) = b.limit
         && b.spent >= limit
     {
-        return Err(ApiError::Limit(format!(
-            "your monthly budget of ${limit:.2} is used up (${:.2} spent); ask an administrator to raise it",
-            b.spent
-        )));
+        return Err(ApiError::Limit(format!("your monthly budget of ${limit:.2} is used up (${:.2} spent); ask an administrator to raise it", b.spent)));
     }
     Ok(())
 }

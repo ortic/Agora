@@ -65,6 +65,7 @@ code, pre { font-family: var(--mono); }
   display: inline-flex; align-items: center; gap: 6px; height: 34px; padding: 0 12px; border-radius: 8px;
   border: 1px solid var(--border-strong); background: var(--bg); cursor: pointer; white-space: nowrap; font-weight: 500;
 }
+a.btn { text-decoration: none; color: inherit; }
 .btn:hover { background: var(--bg-hover); }
 .btn:disabled { opacity: 0.55; cursor: default; }
 .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }

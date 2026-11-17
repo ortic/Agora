@@ -120,7 +120,13 @@ mod nullable {
     }
 }
 
-pub async fn update_user(State(state): State<AppState>, AdminUser(admin): AdminUser, client: Client, Path(id): Path<Uuid>, Json(req): Json<UpdateUser>) -> ApiResult<StatusCode> {
+pub async fn update_user(
+    State(state): State<AppState>,
+    AdminUser(admin): AdminUser,
+    client: Client,
+    Path(id): Path<Uuid>,
+    Json(req): Json<UpdateUser>,
+) -> ApiResult<StatusCode> {
     let target = crate::routes::auth::load_user(&state, id).await?;
     if target.role == "owner" && admin.role != "owner" {
         return Err(ApiError::Denied("only owners can change an owner".into()));
@@ -226,12 +232,22 @@ pub async fn create_group(State(state): State<AppState>, AdminUser(admin): Admin
 async fn set_members(state: &AppState, group: Uuid, members: &[Uuid]) -> ApiResult<()> {
     let mut tx = state.db.begin().await?;
     sqlx::query("DELETE FROM group_members WHERE group_id = $1").bind(group).execute(&mut *tx).await?;
-    sqlx::query("INSERT INTO group_members (group_id, user_id) SELECT $1, u FROM unnest($2::uuid[]) u ON CONFLICT DO NOTHING").bind(group).bind(members).execute(&mut *tx).await?;
+    sqlx::query("INSERT INTO group_members (group_id, user_id) SELECT $1, u FROM unnest($2::uuid[]) u ON CONFLICT DO NOTHING")
+        .bind(group)
+        .bind(members)
+        .execute(&mut *tx)
+        .await?;
     tx.commit().await?;
     Ok(())
 }
 
-pub async fn update_group(State(state): State<AppState>, AdminUser(admin): AdminUser, client: Client, Path(id): Path<Uuid>, Json(req): Json<GroupBody>) -> ApiResult<StatusCode> {
+pub async fn update_group(
+    State(state): State<AppState>,
+    AdminUser(admin): AdminUser,
+    client: Client,
+    Path(id): Path<Uuid>,
+    Json(req): Json<GroupBody>,
+) -> ApiResult<StatusCode> {
     let exists: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM groups WHERE id = $1)").bind(id).fetch_one(&state.db).await?;
     if !exists {
         return Err(ApiError::NotFound("group"));
@@ -311,7 +327,12 @@ fn check_url(u: &str) -> ApiResult<String> {
     Ok(u)
 }
 
-pub async fn create_provider(State(state): State<AppState>, AdminUser(admin): AdminUser, client: Client, Json(req): Json<ProviderBody>) -> ApiResult<Json<Value>> {
+pub async fn create_provider(
+    State(state): State<AppState>,
+    AdminUser(admin): AdminUser,
+    client: Client,
+    Json(req): Json<ProviderBody>,
+) -> ApiResult<Json<Value>> {
     let kind = req.kind.as_deref().and_then(crate::llm::Kind::parse).ok_or_else(|| ApiError::bad("kind must be anthropic or openai"))?;
     let name = req.name.as_deref().map(str::trim).filter(|n| !n.is_empty()).unwrap_or(match kind {
         crate::llm::Kind::Anthropic => "Anthropic",
@@ -339,11 +360,25 @@ pub async fn create_provider(State(state): State<AppState>, AdminUser(admin): Ad
         .bind(req.enabled.unwrap_or(true))
         .execute(&state.db)
         .await?;
-    audit::log(&state, Some(&admin), Some(&client), "provider.created", Some(("provider", id.to_string())), json!({ "name": name, "kind": req.kind, "baseUrl": base, "apiKey": key.is_some() })).await;
+    audit::log(
+        &state,
+        Some(&admin),
+        Some(&client),
+        "provider.created",
+        Some(("provider", id.to_string())),
+        json!({ "name": name, "kind": req.kind, "baseUrl": base, "apiKey": key.is_some() }),
+    )
+    .await;
     Ok(Json(json!({ "id": id })))
 }
 
-pub async fn update_provider(State(state): State<AppState>, AdminUser(admin): AdminUser, client: Client, Path(id): Path<Uuid>, Json(req): Json<ProviderBody>) -> ApiResult<StatusCode> {
+pub async fn update_provider(
+    State(state): State<AppState>,
+    AdminUser(admin): AdminUser,
+    client: Client,
+    Path(id): Path<Uuid>,
+    Json(req): Json<ProviderBody>,
+) -> ApiResult<StatusCode> {
     let exists: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM providers WHERE id = $1)").bind(id).fetch_one(&state.db).await?;
     if !exists {
         return Err(ApiError::NotFound("provider"));
@@ -405,9 +440,10 @@ pub async fn discover(State(state): State<AppState>, AdminUser(_): AdminUser, Pa
 // ---- models ------------------------------------------------------------------------------
 
 pub async fn list_models(State(state): State<AppState>, AdminUser(_): AdminUser) -> ApiResult<Json<Value>> {
-    let rows = sqlx::query_as::<_, crate::catalog::ModelRow>(sqlx::AssertSqlSafe(format!("{} ORDER BY m.position, m.display_name", crate::catalog::MODEL_SELECT)))
-        .fetch_all(&state.db)
-        .await?;
+    let rows =
+        sqlx::query_as::<_, crate::catalog::ModelRow>(sqlx::AssertSqlSafe(format!("{} ORDER BY m.position, m.display_name", crate::catalog::MODEL_SELECT)))
+            .fetch_all(&state.db)
+            .await?;
     let groups: Vec<(Uuid, Uuid)> = sqlx::query_as("SELECT model_id, group_id FROM model_groups").fetch_all(&state.db).await?;
     Ok(Json(json!(
         rows.into_iter()
@@ -495,7 +531,15 @@ pub async fn create_model(State(state): State<AppState>, AdminUser(admin): Admin
     if let Some(g) = &req.group_ids {
         set_model_groups(&state, id, g).await?;
     }
-    audit::log(&state, Some(&admin), Some(&client), "model.created", Some(("model", id.to_string())), json!({ "model": model, "providerId": provider, "access": req.access })).await;
+    audit::log(
+        &state,
+        Some(&admin),
+        Some(&client),
+        "model.created",
+        Some(("model", id.to_string())),
+        json!({ "model": model, "providerId": provider, "access": req.access }),
+    )
+    .await;
     Ok(Json(json!({ "id": id })))
 }
 
@@ -507,7 +551,13 @@ async fn set_model_groups(state: &AppState, model: Uuid, groups: &[Uuid]) -> Api
     Ok(())
 }
 
-pub async fn update_model(State(state): State<AppState>, AdminUser(admin): AdminUser, client: Client, Path(id): Path<Uuid>, Json(req): Json<ModelBody>) -> ApiResult<StatusCode> {
+pub async fn update_model(
+    State(state): State<AppState>,
+    AdminUser(admin): AdminUser,
+    client: Client,
+    Path(id): Path<Uuid>,
+    Json(req): Json<ModelBody>,
+) -> ApiResult<StatusCode> {
     let exists: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM models WHERE id = $1)").bind(id).fetch_one(&state.db).await?;
     if !exists {
         return Err(ApiError::NotFound("model"));
@@ -646,7 +696,8 @@ pub struct AuditQuery {
     format: Option<String>,
 }
 
-type AuditRow = (i64, chrono::DateTime<chrono::Utc>, Option<Uuid>, Option<String>, Option<String>, Option<String>, String, Option<String>, Option<String>, Value, Vec<u8>);
+type AuditRow =
+    (i64, chrono::DateTime<chrono::Utc>, Option<Uuid>, Option<String>, Option<String>, Option<String>, String, Option<String>, Option<String>, Value, Vec<u8>);
 
 async fn audit_rows(state: &AppState, q: &AuditQuery, limit: i64) -> ApiResult<Vec<AuditRow>> {
     let pattern = q.q.as_deref().map(str::trim).filter(|s| !s.is_empty()).map(|s| format!("%{s}%"));
@@ -694,11 +745,29 @@ pub async fn audit_verify(State(state): State<AppState>, AuditorUser(user): Audi
 pub async fn audit_export(State(state): State<AppState>, AuditorUser(user): AuditorUser, client: Client, Query(q): Query<AuditQuery>) -> ApiResult<Response> {
     let rows = audit_rows(&state, &q, 100_000).await?;
     let format = q.format.as_deref().unwrap_or("jsonl");
-    audit::log(&state, Some(&user), Some(&client), "audit.exported", None, json!({ "format": format, "rows": rows.len(), "action": q.action, "actorId": q.actor_id, "from": q.from, "to": q.to })).await;
+    audit::log(
+        &state,
+        Some(&user),
+        Some(&client),
+        "audit.exported",
+        None,
+        json!({ "format": format, "rows": rows.len(), "action": q.action, "actorId": q.actor_id, "from": q.from, "to": q.to }),
+    )
+    .await;
     let (body, ctype, ext) = if format == "csv" {
         let mut out = String::from("id,at,actor,ip,action,target_type,target_id,data,hash\n");
         for r in rows.iter().rev() {
-            let fields = [r.0.to_string(), r.1.to_rfc3339(), r.3.clone().unwrap_or_default(), r.4.clone().unwrap_or_default(), r.6.clone(), r.7.clone().unwrap_or_default(), r.8.clone().unwrap_or_default(), r.9.to_string(), hex::encode(&r.10)];
+            let fields = [
+                r.0.to_string(),
+                r.1.to_rfc3339(),
+                r.3.clone().unwrap_or_default(),
+                r.4.clone().unwrap_or_default(),
+                r.6.clone(),
+                r.7.clone().unwrap_or_default(),
+                r.8.clone().unwrap_or_default(),
+                r.9.to_string(),
+                hex::encode(&r.10),
+            ];
             out.push_str(&fields.iter().map(|f| csv_field(f)).collect::<Vec<_>>().join(","));
             out.push('\n');
         }
@@ -741,12 +810,12 @@ pub async fn usage_summary(State(state): State<AppState>, AuditorUser(_): Audito
     .bind(q.user_id)
     .fetch_one(&state.db)
     .await?;
-    let days: Vec<(chrono::NaiveDate, i64, f64, i64)> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
+    let days: Vec<(chrono::NaiveDate, i64, f64, i64)> = sqlx::query_as(
         "SELECT d::date, count(e.id), coalesce(sum(e.cost_usd), 0)::float8, coalesce(sum(e.input_tokens + e.output_tokens + e.cache_read_tokens + e.cache_write_tokens), 0)::int8
            FROM generate_series($1::date, $2::date, interval '1 day') d
            LEFT JOIN usage_events e ON e.created_at >= d AND e.created_at < d + interval '1 day' AND ($3::uuid IS NULL OR e.user_id = $3)
           GROUP BY d ORDER BY d"
-    )))
+    )
     .bind(from)
     .bind(to)
     .bind(q.user_id)
@@ -782,8 +851,8 @@ pub async fn usage_summary(State(state): State<AppState>, AuditorUser(_): Audito
     .bind(q.user_id)
     .fetch_all(&state.db)
     .await?;
-    let searches: (i64, i64) = sqlx::query_as(
-        "SELECT count(*) FILTER (WHERE kind = 'search'), count(*) FILTER (WHERE kind = 'fetch') FROM web_events e
+    let searches: (i64, i64, i64) = sqlx::query_as(
+        "SELECT count(*) FILTER (WHERE kind = 'search'), count(*) FILTER (WHERE kind = 'fetch'), count(*) FILTER (WHERE kind = 'retrieve') FROM web_events e
           WHERE e.created_at >= $1::date AND e.created_at < $2::date + 1 AND ($3::uuid IS NULL OR e.user_id = $3)",
     )
     .bind(from)
@@ -794,7 +863,7 @@ pub async fn usage_summary(State(state): State<AppState>, AuditorUser(_): Audito
     Ok(Json(json!({
         "from": from, "to": to,
         "totals": { "requests": totals.0, "inputTokens": totals.1, "outputTokens": totals.2, "cacheTokens": totals.3, "errors": totals.4, "costUsd": totals.5,
-                    "users": totals.6, "searches": searches.0, "fetches": searches.1 },
+                    "users": totals.6, "searches": searches.0, "fetches": searches.1, "retrievals": searches.2 },
         "days": days.iter().map(|(d, n, c, t)| json!({ "day": d, "requests": n, "costUsd": c, "tokens": t })).collect::<Vec<_>>(),
         "users": users.iter().map(|(id, name, email, n, i, o, c)| json!({ "userId": id, "name": name, "email": email, "requests": n, "inputTokens": i, "outputTokens": o, "costUsd": c })).collect::<Vec<_>>(),
         "models": models.iter().map(|(m, n, i, o, c, l)| json!({ "model": m, "requests": n, "inputTokens": i, "outputTokens": o, "costUsd": c, "avgLatencyMs": l })).collect::<Vec<_>>(),
@@ -819,7 +888,9 @@ pub async fn usage_export(State(state): State<AppState>, AuditorUser(user): Audi
     .await?;
     audit::log(&state, Some(&user), Some(&client), "usage.exported", None, json!({ "from": from, "to": to, "rows": rows.len(), "userId": q.user_id })).await;
     let _ = q.format;
-    let mut out = String::from("time,user,model,source,input_tokens,output_tokens,cache_read_tokens,cache_write_tokens,provider_searches,cost_usd,latency_ms,status,chat_id\n");
+    let mut out = String::from(
+        "time,user,model,source,input_tokens,output_tokens,cache_read_tokens,cache_write_tokens,provider_searches,cost_usd,latency_ms,status,chat_id\n",
+    );
     for r in rows {
         let f = [
             r.0.to_rfc3339(),
@@ -840,7 +911,8 @@ pub async fn usage_export(State(state): State<AppState>, AuditorUser(user): Audi
         out.push('\n');
     }
     let name = format!("agora-usage-{from}-{to}.csv");
-    Ok(([(header::CONTENT_TYPE, "text/csv; charset=utf-8".to_string()), (header::CONTENT_DISPOSITION, format!("attachment; filename=\"{name}\""))], out).into_response())
+    Ok(([(header::CONTENT_TYPE, "text/csv; charset=utf-8".to_string()), (header::CONTENT_DISPOSITION, format!("attachment; filename=\"{name}\""))], out)
+        .into_response())
 }
 
 // ---- web activity ------------------------------------------------------------------------
@@ -886,14 +958,15 @@ pub async fn web_events(State(state): State<AppState>, AuditorUser(_): AuditorUs
 // ---- conversation inspector (auditors) ---------------------------------------------------
 
 pub async fn user_chats(State(state): State<AppState>, AuditorUser(_): AuditorUser, Path(id): Path<Uuid>) -> ApiResult<Json<Value>> {
-    let rows: Vec<(Uuid, String, chrono::DateTime<chrono::Utc>, chrono::DateTime<chrono::Utc>, Option<chrono::DateTime<chrono::Utc>>, i64, f64)> = sqlx::query_as(
-        "SELECT c.id, c.title, c.created_at, c.updated_at, c.deleted_at, (SELECT count(*) FROM messages m WHERE m.chat_id = c.id),
+    let rows: Vec<(Uuid, String, chrono::DateTime<chrono::Utc>, chrono::DateTime<chrono::Utc>, Option<chrono::DateTime<chrono::Utc>>, i64, f64)> =
+        sqlx::query_as(
+            "SELECT c.id, c.title, c.created_at, c.updated_at, c.deleted_at, (SELECT count(*) FROM messages m WHERE m.chat_id = c.id),
                 coalesce((SELECT sum(cost_usd) FROM messages m WHERE m.chat_id = c.id), 0)::float8
            FROM chats c WHERE c.user_id = $1 ORDER BY c.updated_at DESC LIMIT 1000",
-    )
-    .bind(id)
-    .fetch_all(&state.db)
-    .await?;
+        )
+        .bind(id)
+        .fetch_all(&state.db)
+        .await?;
     Ok(Json(json!(
         rows.iter()
             .map(|(id, t, c, u, d, n, cost)| json!({ "id": id, "title": t, "createdAt": c, "updatedAt": u, "deletedAt": d, "messages": n, "costUsd": cost }))
@@ -916,7 +989,10 @@ pub async fn inspect_chat(State(state): State<AppState>, AuditorUser(auditor): A
     )
     .await;
     let web: Vec<(chrono::DateTime<chrono::Utc>, String, Option<String>, Option<String>, String)> =
-        sqlx::query_as("SELECT created_at, kind, query, url, status FROM web_events WHERE chat_id = $1 ORDER BY created_at").bind(id).fetch_all(&state.db).await?;
+        sqlx::query_as("SELECT created_at, kind, query, url, status FROM web_events WHERE chat_id = $1 ORDER BY created_at")
+            .bind(id)
+            .fetch_all(&state.db)
+            .await?;
     Ok(Json(json!({
         "chat": chat, "owner": owner, "messages": messages,
         "web": web.iter().map(|(at, k, q, u, s)| json!({ "at": at, "kind": k, "query": q, "url": u, "status": s })).collect::<Vec<_>>(),

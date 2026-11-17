@@ -107,7 +107,10 @@ pub fn router(state: AppState) -> Router {
             axum::http::header::REFERRER_POLICY,
             axum::http::HeaderValue::from_static("strict-origin-when-cross-origin"),
         ))
-        .layer(tower_http::set_header::SetResponseHeaderLayer::if_not_present(axum::http::header::X_FRAME_OPTIONS, axum::http::HeaderValue::from_static("DENY")))
+        .layer(tower_http::set_header::SetResponseHeaderLayer::if_not_present(
+            axum::http::header::X_FRAME_OPTIONS,
+            axum::http::HeaderValue::from_static("DENY"),
+        ))
         .layer(tower_http::set_header::SetResponseHeaderLayer::if_not_present(
             axum::http::header::CONTENT_SECURITY_POLICY,
             axum::http::HeaderValue::from_static(CSP),

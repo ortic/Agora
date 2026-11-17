@@ -75,7 +75,10 @@ impl ModelRow {
 }
 
 pub async fn accessible(state: &AppState, user: &User) -> ApiResult<Vec<ModelRow>> {
-    Ok(sqlx::query_as::<_, ModelRow>(sqlx::AssertSqlSafe(format!("{MODEL_SELECT} WHERE {ACCESS} ORDER BY m.position, m.display_name"))).bind(user.id).fetch_all(&state.db).await?)
+    Ok(sqlx::query_as::<_, ModelRow>(sqlx::AssertSqlSafe(format!("{MODEL_SELECT} WHERE {ACCESS} ORDER BY m.position, m.display_name")))
+        .bind(user.id)
+        .fetch_all(&state.db)
+        .await?)
 }
 
 /// The model if the user may use it (404 otherwise: no hint that it exists).
@@ -96,11 +99,7 @@ pub async fn for_user_by_name(state: &AppState, user: &User, name: &str) -> ApiR
     {
         return Ok(m.clone());
     }
-    all.iter()
-        .find(|m| api_name(m, &all) == name)
-        .or_else(|| all.iter().find(|m| m.model == name))
-        .cloned()
-        .ok_or_else(|| ApiError::NotFound("model"))
+    all.iter().find(|m| api_name(m, &all) == name).or_else(|| all.iter().find(|m| m.model == name)).cloned().ok_or_else(|| ApiError::NotFound("model"))
 }
 
 /// Name of a model in the OpenAI-compatible API: its provider-side name, prefixed with the

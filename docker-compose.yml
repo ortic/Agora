@@ -1,0 +1,50 @@
+# Agora + PostgreSQL. Start with:
+#   export AGORA_DB_PASSWORD=$(openssl rand -hex 16) AGORA_SECRET_KEY=$(openssl rand -hex 32)
+#   docker compose up -d        → http://localhost:8790 (the first visit creates the owner account)
+services:
+  db:
+    # pgvector: for Agora's own knowledge bases later (WikiCraft does its own retrieval)
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_USER: agora
+      POSTGRES_PASSWORD: ${AGORA_DB_PASSWORD:-change-me}
+      POSTGRES_DB: agora
+    volumes:
+      - db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U agora"]
+      interval: 5s
+      retries: 10
+    restart: unless-stopped
+
+  agora:
+    build: .
+    image: agora:latest
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      AGORA_DATABASE_URL: postgres://agora:${AGORA_DB_PASSWORD:-change-me}@db:5432/agora
+      AGORA_BASE_URL: ${AGORA_BASE_URL:-http://localhost:8790}
+      # encrypts provider API keys and connector tokens: set once, keep it safe, don't change it
+      AGORA_SECRET_KEY: ${AGORA_SECRET_KEY:?set AGORA_SECRET_KEY (openssl rand -hex 32)}
+      # behind HTTPS (reverse proxy): true, and AGORA_TRUST_PROXY for client addresses
+      AGORA_SECURE_COOKIES: ${AGORA_SECURE_COOKIES:-false}
+      AGORA_TRUST_PROXY: ${AGORA_TRUST_PROXY:-false}
+      # single sign-on, see README
+      # AGORA_AUTH_PROVIDERS: '[{"type":"oidc","id":"entra","preset":"microsoft","tenant":"…","clientId":"…","clientSecret":"…","syncGroups":true,"groupsClaim":"groups"}]'
+    ports:
+      - "8790:8790"
+    restart: unless-stopped
+
+  # A model in your own network (needs the NVIDIA container toolkit for the GPU). In Agora:
+  # Administration → Models → Connect a provider → "Ollama", base URL http://ollama:11434/v1
+  # ollama:
+  #   image: ollama/ollama:latest
+  #   volumes: [ollama:/root/.ollama]
+  #   deploy: { resources: { reservations: { devices: [{ driver: nvidia, count: all, capabilities: [gpu] }] } } }
+  #   restart: unless-stopped
+
+volumes:
+  db:
+  # ollama:

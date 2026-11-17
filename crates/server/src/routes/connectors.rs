@@ -37,7 +37,13 @@ pub struct TokenBody {
     token: String,
 }
 
-pub async fn connect(State(state): State<AppState>, CurrentUser(user): CurrentUser, client: Client, Path(id): Path<Uuid>, Json(b): Json<TokenBody>) -> ApiResult<Json<Value>> {
+pub async fn connect(
+    State(state): State<AppState>,
+    CurrentUser(user): CurrentUser,
+    client: Client,
+    Path(id): Path<Uuid>,
+    Json(b): Json<TokenBody>,
+) -> ApiResult<Json<Value>> {
     let c = load(&state, id).await?;
     if !c.enabled {
         return Err(ApiError::NotFound("connector"));
@@ -57,12 +63,14 @@ pub async fn connect(State(state): State<AppState>, CurrentUser(user): CurrentUs
     .bind(crate::crypto::hint(token))
     .execute(&state.db)
     .await?;
-    audit::log(&state, Some(&user), Some(&client), "connector.connected", Some(("connector", id.to_string())), json!({ "name": c.name, "remoteUser": who })).await;
+    audit::log(&state, Some(&user), Some(&client), "connector.connected", Some(("connector", id.to_string())), json!({ "name": c.name, "remoteUser": who }))
+        .await;
     Ok(Json(json!({ "remoteUser": who })))
 }
 
 pub async fn disconnect(State(state): State<AppState>, CurrentUser(user): CurrentUser, client: Client, Path(id): Path<Uuid>) -> ApiResult<StatusCode> {
-    let n = sqlx::query("DELETE FROM connector_tokens WHERE connector_id = $1 AND user_id = $2").bind(id).bind(user.id).execute(&state.db).await?.rows_affected();
+    let n =
+        sqlx::query("DELETE FROM connector_tokens WHERE connector_id = $1 AND user_id = $2").bind(id).bind(user.id).execute(&state.db).await?.rows_affected();
     if n > 0 {
         audit::log(&state, Some(&user), Some(&client), "connector.disconnected", Some(("connector", id.to_string())), json!({})).await;
     }
@@ -127,7 +135,13 @@ pub async fn admin_create(State(state): State<AppState>, AdminUser(admin): Admin
     Ok(Json(json!({ "id": id })))
 }
 
-pub async fn admin_update(State(state): State<AppState>, AdminUser(admin): AdminUser, client: Client, Path(id): Path<Uuid>, Json(b): Json<ConnectorBody>) -> ApiResult<StatusCode> {
+pub async fn admin_update(
+    State(state): State<AppState>,
+    AdminUser(admin): AdminUser,
+    client: Client,
+    Path(id): Path<Uuid>,
+    Json(b): Json<ConnectorBody>,
+) -> ApiResult<StatusCode> {
     load(&state, id).await?;
     let base = b.base_url.as_deref().map(check_url).transpose()?;
     sqlx::query(
@@ -142,7 +156,15 @@ pub async fn admin_update(State(state): State<AppState>, AdminUser(admin): Admin
     .bind(b.enabled)
     .execute(&state.db)
     .await?;
-    audit::log(&state, Some(&admin), Some(&client), "connector.updated", Some(("connector", id.to_string())), json!({ "name": b.name, "baseUrl": base, "enabled": b.enabled })).await;
+    audit::log(
+        &state,
+        Some(&admin),
+        Some(&client),
+        "connector.updated",
+        Some(("connector", id.to_string())),
+        json!({ "name": b.name, "baseUrl": base, "enabled": b.enabled }),
+    )
+    .await;
     Ok(StatusCode::NO_CONTENT)
 }
 

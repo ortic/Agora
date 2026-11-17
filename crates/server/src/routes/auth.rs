@@ -207,7 +207,12 @@ pub struct CreateToken {
 }
 
 /// Creates a personal API token (for the OpenAI-compatible API). The token is shown once.
-pub async fn create_token(State(state): State<AppState>, CurrentUser(user): CurrentUser, client: Client, Json(req): Json<CreateToken>) -> ApiResult<Json<Value>> {
+pub async fn create_token(
+    State(state): State<AppState>,
+    CurrentUser(user): CurrentUser,
+    client: Client,
+    Json(req): Json<CreateToken>,
+) -> ApiResult<Json<Value>> {
     let name = req.name.trim();
     if name.is_empty() {
         return Err(ApiError::bad("give the token a name"));
@@ -225,7 +230,15 @@ pub async fn create_token(State(state): State<AppState>, CurrentUser(user): Curr
     .bind(req.expires_in_days.filter(|d| *d > 0))
     .execute(&state.db)
     .await?;
-    audit::log(&state, Some(&user), Some(&client), "token.created", Some(("token", id.to_string())), json!({ "name": name, "expiresInDays": req.expires_in_days })).await;
+    audit::log(
+        &state,
+        Some(&user),
+        Some(&client),
+        "token.created",
+        Some(("token", id.to_string())),
+        json!({ "name": name, "expiresInDays": req.expires_in_days }),
+    )
+    .await;
     Ok(Json(json!({ "id": id, "token": token })))
 }
 

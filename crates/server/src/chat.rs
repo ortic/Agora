@@ -171,8 +171,9 @@ fn tool_defs(web_engine: bool, fetch: bool) -> Vec<ToolDef> {
     if web_engine {
         tools.push(ToolDef {
             name: WEB_SEARCH.into(),
-            description: "Search the web. Use it for current events, facts you're unsure of, and anything after your training data. Returns titles, URLs and snippets."
-                .into(),
+            description:
+                "Search the web. Use it for current events, facts you're unsure of, and anything after your training data. Returns titles, URLs and snippets."
+                    .into(),
             schema: json!({
                 "type": "object",
                 "properties": { "query": { "type": "string", "description": "The search query, as you would type it into a search engine" } },
@@ -270,7 +271,7 @@ async fn run(job: Job, hub: Arc<Hub>, cancel: CancellationToken) {
     let mut tools = tool_defs(engine, fetch);
     let sources = if job.knowledge && job.model.cap("tools") { crate::connectors::linked(&state, job.user.id).await.unwrap_or_default() } else { vec![] };
     tools.extend(sources.iter().map(crate::connectors::tool_def));
-    let search_key = ws.api_key_enc.as_deref().and_then(|k| base64_decode(k)).and_then(|k| state.secrets.decrypt(&k).ok());
+    let search_key = ws.api_key_enc.as_deref().and_then(base64_decode).and_then(|k| state.secrets.decrypt(&k).ok());
 
     // keep the stored message current while streaming (other tabs, restarts)
     let flushing = CancellationToken::new();
@@ -297,7 +298,8 @@ async fn run(job: Job, hub: Arc<Hub>, cancel: CancellationToken) {
         Ok(ep) => ep,
         Err(e) => {
             flushing.cancel();
-            finish(&job, &hub, Outcome { status: "error", error: Some(format!("the model's provider isn't usable: {e}")), ..Default::default() }, started).await;
+            finish(&job, &hub, Outcome { status: "error", error: Some(format!("the model's provider isn't usable: {e}")), ..Default::default() }, started)
+                .await;
             return;
         }
     };
@@ -514,7 +516,9 @@ async fn run_tool(job: &Job, hub: &Hub, call: &ToolCall, search_key: Option<&str
                 (crate::connectors::for_model(&name, &passages), false)
             }
             Err(e) => {
-                hub.publish(json!({ "type": "part", "part": { "type": "knowledge", "id": call.id, "source": name, "query": query, "status": "error", "error": e } }));
+                hub.publish(
+                    json!({ "type": "part", "part": { "type": "knowledge", "id": call.id, "source": name, "query": query, "status": "error", "error": e } }),
+                );
                 record_web(job, "retrieve", &engine, Some(&query), None, &[], Some(&e), ms).await;
                 (format!("The search failed: {e}"), true)
             }
@@ -664,10 +668,11 @@ async fn finish(job: &Job, hub: &Hub, out: Outcome, started: Instant) {
         }),
     )
     .await;
-    if job.title_after && out.status == "complete" {
-        if let Some(title) = write_title(job, &content).await {
-            hub.publish(json!({ "type": "title", "title": title }));
-        }
+    if job.title_after
+        && out.status == "complete"
+        && let Some(title) = write_title(job, &content).await
+    {
+        hub.publish(json!({ "type": "title", "title": title }));
     }
 }
 

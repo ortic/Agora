@@ -1,13 +1,13 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { api, num, usd } from '../../api'
+import { api, num, plural, usd } from '../../api'
 import { Bars } from '../../ui'
 import { Stat } from './Overview'
 
 interface UsageData {
   from: string
   to: string
-  totals: { requests: number; inputTokens: number; outputTokens: number; cacheTokens: number; errors: number; costUsd: number; users: number; searches: number; fetches: number }
+  totals: { requests: number; inputTokens: number; outputTokens: number; cacheTokens: number; errors: number; costUsd: number; users: number; searches: number; fetches: number; retrievals: number }
   days: { day: string; requests: number; costUsd: number; tokens: number }[]
   users: { userId: string | null; name: string | null; email: string | null; requests: number; inputTokens: number; outputTokens: number; costUsd: number }[]
   models: { model: string; requests: number; inputTokens: number; outputTokens: number; costUsd: number; avgLatencyMs: number | null }[]
@@ -35,7 +35,8 @@ export function UsageAdmin() {
         <Stat label="Requests" value={num(d?.totals.requests)} sub={`${num(d?.totals.errors)} failed`} />
         <Stat label="Tokens in / out" value={`${num(d?.totals.inputTokens)} / ${num(d?.totals.outputTokens)}`} sub={`${num(d?.totals.cacheTokens)} from cache`} />
         <Stat label="People" value={num(d?.totals.users)} />
-        <Stat label="Web searches" value={num(d?.totals.searches)} sub={`${num(d?.totals.fetches)} pages read`} />
+        <Stat label="Web searches" value={num(d?.totals.searches)} sub={plural(d?.totals.fetches ?? 0, 'page read', 'pages read')} />
+        <Stat label="Knowledge searches" value={num(d?.totals.retrievals)} />
       </div>
       <div className="card" style={{ marginBottom: 20 }}>
         <div className="row">

@@ -71,7 +71,7 @@ browser ── /api (JSON, SSE) ──► agora (axum)
 - [x] P0 First-run setup wizard (creates the owner)
 - [x] P0 Local accounts (argon2), sessions (HttpOnly cookie, CSRF header), login throttling
 - [x] P0 OIDC providers (Entra ID, Google, GitLab presets; any issuer), GitHub, LDAP/AD (ported from WikiCraft)
-- [x] P0 SAML 2.0 behind cargo feature `saml` (ported; needs libxmlsec1 at build time)
+- [~] P0 SAML 2.0 behind cargo feature `saml` (ported; needs libxmlsec1 at build time; not yet compiled with the feature)
 - [x] P0 Just-in-time provisioning, allowed domains, group sync from the IdP
 - [x] P0 Roles: `owner`, `admin`, `auditor` (read-only access to audit, usage and conversations), `member`
 - [x] P0 Personal API tokens (for the OpenAI-compatible API)
@@ -98,7 +98,9 @@ browser ── /api (JSON, SSE) ──► agora (axum)
 - [x] P0 Web search toggle with sources shown under the answer
 - [x] P0 Per message: tokens, cost, model, duration
 - [ ] P1 File attachments: images (vision), text/code files, PDF
-- [ ] P1 Knowledge bases / RAG with pgvector `W` `L`
+- [x] P1 Knowledge from WikiCraft: per-user read-only tokens, `/api/retrieve` as a model tool, cited sources, every search logged
+- [ ] P1 TaskCraft as a knowledge source (location / API to be confirmed)
+- [ ] P1 Agora's own knowledge bases (uploads) with pgvector `W` `L`
 - [ ] P1 Prompt library with variables `L` `W`
 - [ ] P1 Share a chat read-only with colleagues (audited) `L` `W`
 - [ ] P1 Export chat (Markdown / JSON)
@@ -144,9 +146,11 @@ browser ── /api (JSON, SSE) ──► agora (axum)
 - [ ] P2 Webhooks
 
 ### 4.8 Operations
-- [x] P0 Single binary, embedded web app, `agora serve|migrate|healthcheck`
+- [x] P0 Single binary, embedded web app, `agora serve|migrate|verify-audit|healthcheck`
+- [ ] P0 Integration tests (mock provider, fresh database per test) in CI
 - [x] P0 Dockerfile, docker-compose (Postgres)
 - [x] P0 Health/readiness endpoints, JSON logs, request ids
+- [ ] P1 Several replicas: stop/reattach across replicas (today: the replica that generates)
 - [ ] P1 Kubernetes manifests, Prometheus metrics
 - [ ] P1 Backup/restore command
 

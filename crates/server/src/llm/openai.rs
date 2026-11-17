@@ -55,7 +55,9 @@ pub fn messages_json(system: Option<&str>, msgs: &[Msg]) -> Vec<Value> {
                     let mut parts: Vec<Value> = images
                         .iter()
                         .filter_map(|b| match b {
-                            Block::Image { media_type, data } => Some(json!({ "type": "image_url", "image_url": { "url": format!("data:{media_type};base64,{data}") } })),
+                            Block::Image { media_type, data } => {
+                                Some(json!({ "type": "image_url", "image_url": { "url": format!("data:{media_type};base64,{data}") } }))
+                            }
                             _ => None,
                         })
                         .collect();
@@ -269,10 +271,7 @@ mod tests {
     fn tool_turns_and_images() {
         let msgs = vec![
             Msg::Plain { role: Role::User, content: vec![Block::Image { media_type: "image/png".into(), data: "AAA".into() }, Block::Text("what?".into())] },
-            Msg::Plain {
-                role: Role::Assistant,
-                content: vec![Block::ToolUse { id: "c1".into(), name: "web_search".into(), input: json!({"query": "x"}) }],
-            },
+            Msg::Plain { role: Role::Assistant, content: vec![Block::ToolUse { id: "c1".into(), name: "web_search".into(), input: json!({"query": "x"}) }] },
             Msg::Plain { role: Role::User, content: vec![Block::ToolResult { id: "c1".into(), content: "r".into(), is_error: false }] },
             Msg::AnthropicRaw { messages: vec![], fallback_text: "earlier answer".into() },
         ];

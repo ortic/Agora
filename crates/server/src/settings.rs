@@ -97,7 +97,11 @@ impl WebSearch {
 
     pub fn blocked(&self, host: &str) -> bool {
         let host = host.trim_end_matches('.').to_ascii_lowercase();
-        self.blocked_domains.iter().map(|d| d.trim().trim_start_matches("*.").to_ascii_lowercase()).filter(|d| !d.is_empty()).any(|d| host == d || host.ends_with(&format!(".{d}")))
+        self.blocked_domains
+            .iter()
+            .map(|d| d.trim().trim_start_matches("*.").to_ascii_lowercase())
+            .filter(|d| !d.is_empty())
+            .any(|d| host == d || host.ends_with(&format!(".{d}")))
     }
 }
 

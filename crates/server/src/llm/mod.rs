@@ -53,9 +53,20 @@ pub enum Role {
 pub enum Block {
     Text(String),
     /// base64 image
-    Image { media_type: String, data: String },
-    ToolUse { id: String, name: String, input: Value },
-    ToolResult { id: String, content: String, is_error: bool },
+    Image {
+        media_type: String,
+        data: String,
+    },
+    ToolUse {
+        id: String,
+        name: String,
+        input: Value,
+    },
+    ToolResult {
+        id: String,
+        content: String,
+        is_error: bool,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -114,10 +125,20 @@ pub enum Event {
     Text(String),
     Reasoning(String),
     /// the model started calling a tool
-    ToolStart { id: String, name: String },
+    ToolStart {
+        id: String,
+        name: String,
+    },
     /// Claude searched the web itself
-    NativeSearch { id: String, query: String },
-    NativeSearchResults { id: String, results: Vec<SearchHit>, error: Option<String> },
+    NativeSearch {
+        id: String,
+        query: String,
+    },
+    NativeSearchResults {
+        id: String,
+        results: Vec<SearchHit>,
+        error: Option<String>,
+    },
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
@@ -194,11 +215,7 @@ pub enum LlmError {
 }
 
 pub fn client(timeout_secs: u64) -> reqwest::Client {
-    reqwest::Client::builder()
-        .connect_timeout(Duration::from_secs(15))
-        .read_timeout(Duration::from_secs(timeout_secs.max(10)))
-        .build()
-        .expect("http client")
+    reqwest::Client::builder().connect_timeout(Duration::from_secs(15)).read_timeout(Duration::from_secs(timeout_secs.max(10))).build().expect("http client")
 }
 
 /// Streams one model call. `on_event` sees text, reasoning and tool activity as it arrives.

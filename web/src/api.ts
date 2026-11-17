@@ -209,6 +209,11 @@ export function usd(n: number | null | undefined, digits?: number): string {
   return `$${n.toLocaleString('en-US', { minimumFractionDigits: Math.min(d, 2), maximumFractionDigits: d })}`
 }
 
+/** `1 passage`, `3 passages` */
+export function plural(n: number, one: string, many: string = `${one}s`): string {
+  return `${n.toLocaleString('en-US')} ${n === 1 ? one : many}`
+}
+
 export function num(n: number | null | undefined): string {
   if (n == null) return '—'
   if (n >= 1e9) return `${(n / 1e9).toFixed(1)}B`

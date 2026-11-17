@@ -26,7 +26,8 @@ pub async fn run(state: &AppState) -> anyhow::Result<()> {
     sqlx::query("DELETE FROM auth_states WHERE expires_at < now()").execute(&state.db).await?;
     sqlx::query("DELETE FROM login_attempts WHERE window_start < now() - interval '1 day'").execute(&state.db).await?;
     if let Some(days) = s.chat_retention_days {
-        let n = sqlx::query("DELETE FROM chats WHERE deleted_at < now() - make_interval(days => $1)").bind(days as i32).execute(&state.db).await?.rows_affected();
+        let n =
+            sqlx::query("DELETE FROM chats WHERE deleted_at < now() - make_interval(days => $1)").bind(days as i32).execute(&state.db).await?.rows_affected();
         if n > 0 {
             crate::audit::log(state, None, None, "retention.chats_purged", None, json!({ "chats": n, "days": days })).await;
         }

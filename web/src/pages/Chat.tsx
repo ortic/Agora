@@ -17,7 +17,7 @@ import {
   Square,
   TriangleAlert,
 } from 'lucide-react'
-import { api, ApiError, num, streamEvents, usd, type Chat, type ConnectorInfo, type Me, type Message, type ModelInfo, type Part, type StreamEvent } from '../api'
+import { api, ApiError, num, plural, streamEvents, usd, type Chat, type ConnectorInfo, type Me, type Message, type ModelInfo, type Part, type StreamEvent } from '../api'
 import { CopyButton, Dialog, hostOf, Markdown } from '../ui'
 
 interface ChatData {
@@ -294,6 +294,7 @@ export function ChatPage({ me }: { me: Me }) {
                   <AssistantMessage
                     key={m.id}
                     m={m}
+                    modelName={modelList.find((x) => x.id === m.modelId)?.name}
                     siblings={siblings}
                     onSwitch={switchBranch}
                     streaming={m.id === streamingId || m.status === 'streaming'}
@@ -549,12 +550,12 @@ function UserMessage({ m, siblings, onSwitch, onEdit, busy }: { m: Message; sibl
   )
 }
 
-function AssistantMessage(props: { m: Message; siblings: Message[]; onSwitch: (m: Message) => void; streaming: boolean; canRegenerate: boolean; onRegenerate: () => void }) {
+function AssistantMessage(props: { m: Message; modelName?: string; siblings: Message[]; onSwitch: (m: Message) => void; streaming: boolean; canRegenerate: boolean; onRegenerate: () => void }) {
   const { m, streaming } = props
   const waiting = streaming && !m.content && m.parts.length === 0
   return (
     <div className="msg assistant">
-      <div className="assistant-head">{m.modelName ?? 'Assistant'}</div>
+      <div className="assistant-head" title={m.modelName ?? undefined}>{props.modelName ?? m.modelName ?? 'Assistant'}</div>
       {m.parts.length > 0 && (
         <div className="parts">
           {m.parts.map((p, i) => (
@@ -620,7 +621,7 @@ function PartView({ p, live }: { p: Part; live: boolean }) {
           {p.type === 'knowledge' && <span>{p.source}:</span>}
           <span className="q">{p.query}</span>
           <span className="grow" />
-          {p.status === 'done' && <span className="faint">{n} {p.type === 'knowledge' ? 'passages' : 'results'}</span>}
+          {p.status === 'done' && <span className="faint">{plural(n, p.type === 'knowledge' ? 'passage' : 'result')}</span>}
           {p.status === 'error' && <span className="error-text">{p.error ?? 'failed'}</span>}
         </summary>
         {n > 0 && (
