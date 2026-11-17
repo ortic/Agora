@@ -10,7 +10,7 @@ interface WebEvent {
   userId: string | null
   user: string | null
   chatId: string | null
-  kind: 'search' | 'fetch'
+  kind: 'search' | 'fetch' | 'retrieve'
   engine: string
   query: string | null
   url: string | null
@@ -37,12 +37,13 @@ export function WebAdmin() {
   const rows = events.data?.pages.flatMap((p) => p.events) ?? []
   return (
     <>
-      <p className="muted" style={{ marginTop: 0 }}>Every search a model ran and every page it read, for whom, and what came back.</p>
+      <p className="muted" style={{ marginTop: 0 }}>Every web search, page read and knowledge search a model ran, for whom, and what came back.</p>
       <div className="row" style={{ marginBottom: 12 }}>
         <select className="input" style={{ width: 'auto' }} value={kind} onChange={(e) => setKind(e.target.value)} aria-label="Kind">
-          <option value="">Searches and page reads</option>
+          <option value="">Everything</option>
           <option value="search">Searches</option>
           <option value="fetch">Page reads</option>
+          <option value="retrieve">Knowledge searches (wiki)</option>
         </select>
         <input className="input" style={{ maxWidth: 320 }} placeholder="Search queries, URLs, results" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search" />
       </div>
@@ -56,8 +57,8 @@ export function WebAdmin() {
                   <td style={{ whiteSpace: 'nowrap' }}>{when(e.at)}</td>
                   <td>{e.user ?? '—'}</td>
                   <td><span className="badge">{e.engine}</span></td>
-                  <td style={{ maxWidth: 420, overflowWrap: 'anywhere' }}>{e.kind === 'search' ? `“${e.query}”` : e.url}</td>
-                  <td className="num">{e.kind === 'search' ? e.resultCount : ''}</td>
+                  <td style={{ maxWidth: 420, overflowWrap: 'anywhere' }}>{e.kind === 'fetch' ? e.url : `“${e.query}”`}</td>
+                  <td className="num">{e.kind === 'fetch' ? '' : e.resultCount}</td>
                   <td>
                     <span className={`badge${e.status === 'ok' ? '' : e.status === 'blocked' ? ' warn' : ' danger'}`}>{e.status}</span>
                     {e.durationMs != null && <span className="faint" style={{ fontSize: 12, marginLeft: 4 }}>{(e.durationMs / 1000).toFixed(1)} s</span>}

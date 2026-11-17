@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, type ModelInfo } from '../../api'
 import { ErrorText } from '../../ui'
+import { ConnectorsAdmin } from './Connectors'
 
 interface OrgSettings {
   name: string
@@ -154,6 +155,8 @@ export function SettingsAdmin() {
         <span>Blocked domains</span>
         <textarea className="input mono" rows={3} value={blocked} onChange={(e) => setBlocked(e.target.value)} placeholder={'one per line, subdomains included\nexample.com'} />
       </label>
+
+      <ConnectorsAdmin />
 
       <h2>Audit & retention</h2>
       <label className="field">

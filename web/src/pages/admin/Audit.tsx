@@ -22,6 +22,8 @@ const ACTIONS = [
   ['auth.', 'Sign-ins'],
   ['chat.', 'Chats (prompts and answers)'],
   ['web.', 'Web searches and page reads'],
+  ['knowledge.', 'Knowledge searches (wiki)'],
+  ['connector.', 'Knowledge sources'],
   ['api.', 'API use'],
   ['audit.', 'Audit access (viewed chats, exports)'],
   ['user.', 'People'],
@@ -107,6 +109,7 @@ function summary(e: AuditEvent): string {
     case 'chat.answer': return `${d.model} · ${d.status} · ${d.outputTokens} tokens · $${Number(d.costUsd ?? 0).toFixed(4)}${d.content ? ` · ${d.content}` : ''}`
     case 'web.search': return `${d.engine}: “${d.query}” → ${(d.results ?? []).length} results${d.error ? ` (${d.error})` : ''}`
     case 'web.fetch': return `${d.url} (${d.status})`
+    case 'knowledge.search': return `${d.engine}: “${d.query}” → ${(d.results ?? []).length} passages${d.error ? ` (${d.error})` : ''}`
     case 'api.completion': return `${d.model} · ${d.status}${d.prompt ? ` · ${d.prompt}` : ''}`
     case 'auth.login': return `via ${d.method}${d.provider ? ` (${d.provider})` : ''}`
     case 'auth.login_failed': return `${d.email}`

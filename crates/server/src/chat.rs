@@ -138,6 +138,8 @@ pub struct Job {
     pub user_msg: Uuid,
     pub assistant_msg: Uuid,
     pub web: bool,
+    /// let the model search the person's connected knowledge sources
+    pub knowledge: bool,
     pub chat_system: Option<String>,
     pub effort: Option<String>,
     /// write a title after this answer
@@ -223,7 +225,7 @@ async fn history(state: &AppState, leaf: Uuid) -> anyhow::Result<Vec<Msg>> {
     Ok(out)
 }
 
-fn system_prompt(job: &Job, tools: bool) -> String {
+fn system_prompt(job: &Job, tools: bool, sources: &[crate::connectors::Linked]) -> String {
     let mut parts: Vec<String> = Vec::new();
     if let Some(s) = job.settings.system_prompt.as_deref().filter(|s| !s.trim().is_empty()) {
         parts.push(s.trim().to_string());
@@ -237,6 +239,13 @@ fn system_prompt(job: &Job, tools: bool) -> String {
     let mut ctx = format!("Today is {}.", chrono::Utc::now().format("%A, %Y-%m-%d"));
     if tools {
         ctx.push_str(" You can search the web and open pages. When you use information from the web, cite the pages as Markdown links.");
+    }
+    if !sources.is_empty() {
+        let names: Vec<&str> = sources.iter().map(|s| s.connector.name.as_str()).collect();
+        ctx.push_str(&format!(
+            " You can search the organization's internal knowledge ({}). Search it first for questions about the organization, its projects, processes and people; base your answer on what you find and cite the pages as Markdown links. Say so when it has nothing on the question.",
+            names.join(", ")
+        ));
     }
     parts.push(ctx);
     parts.join("\n\n")
@@ -258,7 +267,9 @@ async fn run(job: Job, hub: Arc<Hub>, cancel: CancellationToken) {
     let native = tools_ok && kind == Kind::Anthropic && ws.claude_native;
     let engine = tools_ok && !native && ws.engine != "none";
     let fetch = tools_ok && ws.fetch_enabled && (engine || native);
-    let tools = tool_defs(engine, fetch);
+    let mut tools = tool_defs(engine, fetch);
+    let sources = if job.knowledge && job.model.cap("tools") { crate::connectors::linked(&state, job.user.id).await.unwrap_or_default() } else { vec![] };
+    tools.extend(sources.iter().map(crate::connectors::tool_def));
     let search_key = ws.api_key_enc.as_deref().and_then(|k| base64_decode(k)).and_then(|k| state.secrets.decrypt(&k).ok());
 
     // keep the stored message current while streaming (other tabs, restarts)
@@ -300,7 +311,7 @@ async fn run(job: Job, hub: Arc<Hub>, cancel: CancellationToken) {
     };
     let mut req = llm::Request {
         model: job.model.model.clone(),
-        system: Some(system_prompt(&job, engine || native)),
+        system: Some(system_prompt(&job, engine || native, &sources)),
         messages: vec![],
         tools: tools.clone(),
         native_search: native.then(|| llm::NativeSearch { max_uses: ws.max_tool_calls.max(1), blocked_domains: ws.blocked_domains.clone() }),
@@ -422,7 +433,7 @@ async fn run(job: Job, hub: Arc<Hub>, cancel: CancellationToken) {
                         ("Tool call limit reached for this answer. Answer with the information you already have.".to_string(), true)
                     } else {
                         tool_budget -= 1;
-                        run_tool(&job, &hub, call, search_key.as_deref()).await
+                        run_tool(&job, &hub, call, search_key.as_deref(), &sources).await
                     };
                     results.push(Block::ToolResult { id: call.id.clone(), content, is_error });
                 }
@@ -476,9 +487,39 @@ struct Outcome {
 }
 
 /// Runs one of our tools; returns (content for the model, is_error).
-async fn run_tool(job: &Job, hub: &Hub, call: &ToolCall, search_key: Option<&str>) -> (String, bool) {
+async fn run_tool(job: &Job, hub: &Hub, call: &ToolCall, search_key: Option<&str>, sources: &[crate::connectors::Linked]) -> (String, bool) {
     let ws = &job.settings.web_search;
     let started = Instant::now();
+    if let Some(src) = sources.iter().find(|s| s.tool == call.name) {
+        let query = call.input["query"].as_str().unwrap_or_default().trim().to_string();
+        let space = call.input["space"].as_str();
+        if query.is_empty() {
+            return ("The query is empty.".into(), true);
+        }
+        let name = src.connector.name.clone();
+        let engine = format!("wikicraft:{name}");
+        hub.publish(json!({ "type": "part", "part": { "type": "knowledge", "id": call.id, "source": name, "query": query, "status": "running" } }));
+        let res = crate::connectors::search(src, &query, space).await;
+        let ms = started.elapsed().as_millis() as i64;
+        let _ = sqlx::query("UPDATE connector_tokens SET last_used_at = now() WHERE connector_id = $1 AND user_id = $2")
+            .bind(src.connector.id)
+            .bind(job.user.id)
+            .execute(&job.state.db)
+            .await;
+        return match res {
+            Ok(passages) => {
+                let hits = crate::connectors::hits(&passages);
+                hub.publish(json!({ "type": "part", "part": { "type": "knowledge", "id": call.id, "source": name, "query": query, "status": "done", "results": hits } }));
+                record_web(job, "retrieve", &engine, Some(&query), None, &hits, None, ms).await;
+                (crate::connectors::for_model(&name, &passages), false)
+            }
+            Err(e) => {
+                hub.publish(json!({ "type": "part", "part": { "type": "knowledge", "id": call.id, "source": name, "query": query, "status": "error", "error": e } }));
+                record_web(job, "retrieve", &engine, Some(&query), None, &[], Some(&e), ms).await;
+                (format!("The search failed: {e}"), true)
+            }
+        };
+    }
     match call.name.as_str() {
         WEB_SEARCH => {
             let query = call.input["query"].as_str().unwrap_or_default().trim().to_string();
@@ -563,7 +604,11 @@ async fn record_web(job: &Job, kind: &str, engine: &str, query: Option<&str>, ur
         &job.state,
         Some(&job.user),
         Some(&job.client),
-        if kind == "search" { "web.search" } else { "web.fetch" },
+        match kind {
+            "search" => "web.search",
+            "fetch" => "web.fetch",
+            _ => "knowledge.search",
+        },
         Some(("chat", job.chat_id.to_string())),
         json!({ "engine": engine, "query": query, "url": url, "status": status, "error": error, "results": urls, "messageId": job.assistant_msg }),
     )

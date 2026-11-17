@@ -213,6 +213,7 @@ pub struct SendRequest {
     parent_id: Option<Uuid>,
     model_id: Option<Uuid>,
     web_search: Option<bool>,
+    knowledge: Option<bool>,
     effort: Option<String>,
 }
 
@@ -263,6 +264,8 @@ pub async fn send(State(state): State<AppState>, CurrentUser(user): CurrentUser,
     let web = req.web_search.unwrap_or(false);
     let mut chat_settings = chat.settings.as_object().cloned().unwrap_or_default();
     chat_settings.insert("webSearch".into(), json!(web));
+    let knowledge = req.knowledge.unwrap_or(false);
+    chat_settings.insert("knowledge".into(), json!(knowledge));
     sqlx::query("UPDATE chats SET leaf_id = $2, model_id = $3, settings = $4, updated_at = now() WHERE id = $1")
         .bind(id)
         .bind(assistant_msg)
@@ -283,7 +286,7 @@ pub async fn send(State(state): State<AppState>, CurrentUser(user): CurrentUser,
     )
     .await;
     let title_after = req.parent_id.is_none() && chat.title == "New chat";
-    stream_answer(&state, user, client, settings, &chat, model, user_msg, assistant_msg, web, req.effort, title_after).await
+    stream_answer(&state, user, client, settings, &chat, model, user_msg, assistant_msg, web, knowledge, req.effort, title_after).await
 }
 
 #[derive(Deserialize)]
@@ -293,6 +296,7 @@ pub struct RegenerateRequest {
     message_id: Uuid,
     model_id: Option<Uuid>,
     web_search: Option<bool>,
+    knowledge: Option<bool>,
     effort: Option<String>,
 }
 
@@ -333,7 +337,8 @@ pub async fn regenerate(
     )
     .await;
     let web = req.web_search.unwrap_or_else(|| chat.settings["webSearch"].as_bool().unwrap_or(false));
-    stream_answer(&state, user, client, settings, &chat, model, m.id, assistant_msg, web, req.effort, false).await
+    let knowledge = req.knowledge.unwrap_or_else(|| chat.settings["knowledge"].as_bool().unwrap_or(false));
+    stream_answer(&state, user, client, settings, &chat, model, m.id, assistant_msg, web, knowledge, req.effort, false).await
 }
 
 async fn stream_answer(
@@ -346,6 +351,7 @@ async fn stream_answer(
     user_msg: Uuid,
     assistant_msg: Uuid,
     web: bool,
+    knowledge: bool,
     effort: Option<String>,
     title_after: bool,
 ) -> ApiResult<Response> {
@@ -365,6 +371,7 @@ async fn stream_answer(
         user_msg,
         assistant_msg,
         web,
+        knowledge,
         chat_system: chat.system_prompt.clone(),
         effort,
         title_after,

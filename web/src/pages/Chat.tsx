@@ -3,6 +3,7 @@ import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   ArrowUp,
+  BookOpen,
   Brain,
   ChevronDown,
   ChevronLeft,
@@ -16,7 +17,7 @@ import {
   Square,
   TriangleAlert,
 } from 'lucide-react'
-import { api, ApiError, num, streamEvents, usd, type Chat, type Me, type Message, type ModelInfo, type Part, type StreamEvent } from '../api'
+import { api, ApiError, num, streamEvents, usd, type Chat, type ConnectorInfo, type Me, type Message, type ModelInfo, type Part, type StreamEvent } from '../api'
 import { CopyButton, Dialog, hostOf, Markdown } from '../ui'
 
 interface ChatData {
@@ -29,6 +30,7 @@ interface Pending {
   content: string
   modelId: string
   webSearch: boolean
+  knowledge: boolean
   effort: string | null
 }
 
@@ -47,6 +49,9 @@ export function ChatPage({ me }: { me: Me }) {
   const [title, setTitle] = useState<string>('New chat')
   const [modelId, setModelId] = useState<string | null>(null)
   const [webSearch, setWebSearch] = useState(false)
+  const connectors = useQuery({ queryKey: ['connectors'], queryFn: () => api.get<ConnectorInfo[]>('/connectors'), staleTime: 60_000 })
+  const sources = (connectors.data ?? []).filter((c) => c.connected)
+  const [knowledge, setKnowledge] = useState<boolean | null>(null)
   const [effort, setEffort] = useState<string | null>(null)
   const [systemPrompt, setSystemPrompt] = useState<string>('')
   const [streamingId, setStreamingId] = useState<string | null>(null)
@@ -64,6 +69,7 @@ export function ChatPage({ me }: { me: Me }) {
     setTitle(c.title)
     setModelId(c.modelId)
     setWebSearch(!!c.settings.webSearch)
+    setKnowledge(c.settings.knowledge ?? null)
     setEffort(c.settings.effort ?? null)
     setSystemPrompt(c.systemPrompt ?? '')
     for (const live of data.data.live) follow(live)
@@ -72,6 +78,8 @@ export function ChatPage({ me }: { me: Me }) {
   const modelList = models.data ?? []
   const model = modelList.find((m) => m.id === modelId) ?? modelList.find((m) => m.id === me.defaultModelId) ?? modelList[0]
   const effortShown = model?.kind === 'anthropic' && model.reasoning
+  // on by default once something is connected
+  const useKnowledge = sources.length > 0 && !!model?.tools && (knowledge ?? true)
 
   const applyEvent = useCallback((ev: StreamEvent, targetId: { current: string | null }) => {
     if (ev.type === 'start') {
@@ -139,12 +147,12 @@ export function ChatPage({ me }: { me: Me }) {
 
   async function send(content: string, parentId: string | null) {
     if (!model) return setError('No model is available to you yet. Ask an administrator to connect one.')
-    const body = { content, parentId, modelId: model.id, webSearch: webSearch && model.webSearch, effort: effortShown ? effort : null }
+    const body = { content, parentId, modelId: model.id, webSearch: webSearch && model.webSearch, knowledge: useKnowledge, effort: effortShown ? effort : null }
     if (!id) {
       try {
-        const chat = await api.post<Chat>('/chats', { modelId: model.id, systemPrompt: systemPrompt || null, settings: { webSearch, effort } })
+        const chat = await api.post<Chat>('/chats', { modelId: model.id, systemPrompt: systemPrompt || null, settings: { webSearch, knowledge: useKnowledge, effort } })
         qc.invalidateQueries({ queryKey: ['chats'] })
-        navigate(`/c/${chat.id}`, { state: { pending: { content, modelId: model.id, webSearch: body.webSearch, effort: body.effort } satisfies Pending } })
+        navigate(`/c/${chat.id}`, { state: { pending: { content, modelId: model.id, webSearch: body.webSearch, knowledge: useKnowledge, effort: body.effort } satisfies Pending } })
       } catch (e) {
         setError(e instanceof Error ? e.message : String(e))
       }
@@ -163,7 +171,7 @@ export function ChatPage({ me }: { me: Me }) {
 
   async function regenerate(assistant: Message) {
     if (!id || !assistant.parentId) return
-    await run(`/chats/${id}/regenerate`, { messageId: assistant.parentId, modelId: model?.id, webSearch: webSearch && model?.webSearch, effort: effortShown ? effort : null })
+    await run(`/chats/${id}/regenerate`, { messageId: assistant.parentId, modelId: model?.id, webSearch: webSearch && model?.webSearch, knowledge: useKnowledge, effort: effortShown ? effort : null })
   }
 
   function stop() {
@@ -241,6 +249,9 @@ export function ChatPage({ me }: { me: Me }) {
               model={model}
               webSearch={webSearch}
               setWebSearch={setWebSearch}
+              sources={sources.map((c) => c.name)}
+              knowledge={useKnowledge}
+              setKnowledge={(b) => setKnowledge(b)}
               effort={effort}
               setEffort={setEffort}
               effortShown={!!effortShown}
@@ -303,6 +314,9 @@ export function ChatPage({ me }: { me: Me }) {
               model={model}
               webSearch={webSearch}
               setWebSearch={setWebSearch}
+              sources={sources.map((c) => c.name)}
+              knowledge={useKnowledge}
+              setKnowledge={(b) => setKnowledge(b)}
               effort={effort}
               setEffort={setEffort}
               effortShown={!!effortShown}
@@ -383,6 +397,9 @@ function Composer(props: {
   model?: ModelInfo
   webSearch: boolean
   setWebSearch: (b: boolean) => void
+  sources: string[]
+  knowledge: boolean
+  setKnowledge: (b: boolean) => void
   effort: string | null
   setEffort: (e: string | null) => void
   effortShown: boolean
@@ -433,6 +450,17 @@ function Composer(props: {
           >
             <Globe size={14} /> Web search
           </button>
+          {props.sources.length > 0 && (
+            <button
+              className={`toggle${props.knowledge ? ' on' : ''}`}
+              disabled={!props.model?.tools}
+              title={`Let the model search ${props.sources.join(', ')} with your permissions`}
+              aria-pressed={props.knowledge}
+              onClick={() => props.setKnowledge(!props.knowledge)}
+            >
+              <BookOpen size={14} /> {props.sources.length === 1 ? props.sources[0] : 'Knowledge'}
+            </button>
+          )}
           {props.effortShown && (
             <select
               className="toggle"
@@ -582,22 +610,24 @@ function PartView({ p, live }: { p: Part; live: boolean }) {
       </details>
     )
   }
-  if (p.type === 'search') {
+  if (p.type === 'search' || p.type === 'knowledge') {
     const n = p.results?.length ?? 0
+    const Icon = p.type === 'knowledge' ? BookOpen : Search
     return (
       <details className="tool">
         <summary>
-          {p.status === 'running' ? <span className="spinner" /> : <Search size={14} />}
+          {p.status === 'running' ? <span className="spinner" /> : <Icon size={14} />}
+          {p.type === 'knowledge' && <span>{p.source}:</span>}
           <span className="q">{p.query}</span>
           <span className="grow" />
-          {p.status === 'done' && <span className="faint">{n} results</span>}
+          {p.status === 'done' && <span className="faint">{n} {p.type === 'knowledge' ? 'passages' : 'results'}</span>}
           {p.status === 'error' && <span className="error-text">{p.error ?? 'failed'}</span>}
         </summary>
         {n > 0 && (
           <div className="sources">
             {p.results!.map((r, i) => (
               <a key={i} className="source" href={r.url} target="_blank" rel="noopener noreferrer" title={r.snippet}>
-                <span className="host">{hostOf(r.url)}</span>
+                <span className="host">{p.type === 'knowledge' ? r.snippet : hostOf(r.url)}</span>
                 <span className="t">{r.title || r.url}</span>
               </a>
             ))}

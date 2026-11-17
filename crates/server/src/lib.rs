@@ -7,6 +7,7 @@ pub mod auth;
 pub mod catalog;
 pub mod chat;
 pub mod config;
+pub mod connectors;
 pub mod crypto;
 pub mod error;
 pub mod llm;

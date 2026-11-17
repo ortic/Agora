@@ -136,7 +136,7 @@ export interface Chat {
   title: string
   modelId: string | null
   systemPrompt: string | null
-  settings: { webSearch?: boolean; effort?: string }
+  settings: { webSearch?: boolean; knowledge?: boolean; effort?: string }
   leafId: string | null
   pinned: boolean
   createdAt: string
@@ -154,6 +154,7 @@ export type Part =
   | { type: 'reasoning'; text: string }
   | { type: 'search'; id: string; engine: string; query: string; status: 'running' | 'done' | 'error'; results?: SearchHit[]; error?: string | null }
   | { type: 'fetch'; id: string; url: string; title?: string; status: 'running' | 'done' | 'error'; error?: string | null }
+  | { type: 'knowledge'; id: string; source: string; query: string; status: 'running' | 'done' | 'error'; results?: SearchHit[]; error?: string | null }
 
 export interface Message {
   id: string
@@ -182,6 +183,17 @@ export type StreamEvent =
   | { type: 'done'; message: Message }
   | { type: 'title'; title: string }
   | { type: 'end' }
+
+export interface ConnectorInfo {
+  id: string
+  name: string
+  kind: 'wikicraft'
+  baseUrl: string
+  description: string | null
+  connected: boolean
+  tokenHint: string | null
+  lastUsedAt: string | null
+}
 
 export interface Budget {
   limit: number | null

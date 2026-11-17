@@ -1,6 +1,7 @@
 pub mod admin;
 pub mod auth;
 pub mod chats;
+pub mod connectors;
 pub mod openai_api;
 
 use axum::Router;
@@ -34,6 +35,11 @@ pub fn api() -> Router<AppState> {
         .route("/chats/{id}/regenerate", post(chats::regenerate))
         .route("/messages/{id}/stream", get(chats::follow))
         .route("/messages/{id}/stop", post(chats::stop))
+        // knowledge sources (RAG)
+        .route("/connectors", get(connectors::list))
+        .route("/connectors/{id}/token", axum::routing::put(connectors::connect).delete(connectors::disconnect))
+        .route("/admin/connectors", get(connectors::admin_list).post(connectors::admin_create))
+        .route("/admin/connectors/{id}", patch(connectors::admin_update).delete(connectors::admin_delete))
         // OpenAI-compatible API (base URL: /api/v1)
         .route("/v1/models", get(openai_api::models))
         .route("/v1/chat/completions", post(openai_api::completions))

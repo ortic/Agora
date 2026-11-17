@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { KeyRound, Trash2 } from 'lucide-react'
 import { ago, api, num, usd, type Budget, type Me } from '../api'
 import { applyTheme, Bars, CopyButton, Dialog, ErrorText, getTheme, Meter, type Theme } from '../ui'
+import { Connections } from '../components/Connections'
 
 interface MyUsage {
   budget: Budget
@@ -82,6 +83,8 @@ export function SettingsPage({ me }: { me: Me }) {
             </table>
           </div>
         )}
+
+        <Connections />
 
         <Tokens />
 
