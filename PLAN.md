@@ -109,7 +109,7 @@ browser ── /api (JSON, SSE) ──► agora (axum)
 - [ ] P3 Arena / side-by-side comparison `W`
 
 ### 4.4 Web search & tracking
-- [x] P0 Engines: SearXNG, Brave Search API, Tavily; `fetch_url` for pages (SSRF-safe, size limits)
+- [x] P0 Engines: SearXNG, Brave Search API, Serper, Tavily; `fetch_url` for pages (SSRF-safe, size limits)
 - [x] P0 Tool calling on both provider types (the model decides when to search)
 - [x] P0 Claude's native server-side web search as an option (results also tracked)
 - [x] P0 **Every search and fetch recorded**: user, chat, message, engine, query/URL, result URLs, status, duration

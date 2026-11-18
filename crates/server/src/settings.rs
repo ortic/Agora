@@ -37,7 +37,7 @@ pub struct Settings {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct WebSearch {
-    /// `none`, `searxng`, `brave` or `tavily`
+    /// `none`, `searxng`, `brave`, `serper` or `tavily`
     pub engine: String,
     /// SearXNG base URL (`https://searx.example.com`)
     pub url: Option<String>,

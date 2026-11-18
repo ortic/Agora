@@ -17,7 +17,7 @@ interface OrgSettings {
   notice: string | null
   allowUserSystemPrompt: boolean
   webSearch: {
-    engine: 'none' | 'searxng' | 'brave' | 'tavily'
+    engine: 'none' | 'searxng' | 'brave' | 'serper' | 'tavily'
     url: string | null
     apiKeySet: boolean
     apiKey?: string
@@ -117,6 +117,7 @@ export function SettingsAdmin() {
           <option value="none">None</option>
           <option value="searxng">SearXNG (self-hosted)</option>
           <option value="brave">Brave Search API</option>
+          <option value="serper">Serper (Google results, serper.dev)</option>
           <option value="tavily">Tavily</option>
         </select>
       </label>
@@ -127,7 +128,7 @@ export function SettingsAdmin() {
           <div className="hint">Enable the <code>json</code> format in SearXNG's settings.yml.</div>
         </label>
       )}
-      {(ws.engine === 'brave' || ws.engine === 'tavily') && (
+      {(ws.engine === 'brave' || ws.engine === 'serper' || ws.engine === 'tavily') && (
         <label className="field">
           <span>API key</span>
           <input className="input" type="password" value={ws.apiKey ?? ''} onChange={(e) => setWs({ apiKey: e.target.value })} placeholder={ws.apiKeySet ? 'unchanged (set)' : ''} autoComplete="off" />

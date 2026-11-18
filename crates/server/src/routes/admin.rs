@@ -660,8 +660,8 @@ pub async fn put_settings(State(state): State<AppState>, AdminUser(admin): Admin
     if !matches!(s.audit_content.as_str(), "full" | "metadata") {
         return Err(ApiError::bad("auditContent must be full or metadata"));
     }
-    if !matches!(s.web_search.engine.as_str(), "none" | "searxng" | "brave" | "tavily") {
-        return Err(ApiError::bad("the web search engine must be none, searxng, brave or tavily"));
+    if !matches!(s.web_search.engine.as_str(), "none" | "searxng" | "brave" | "serper" | "tavily") {
+        return Err(ApiError::bad("the web search engine must be none, searxng, brave, serper or tavily"));
     }
     s.web_search.max_results = s.web_search.max_results.clamp(1, 20);
     s.web_search.max_tool_calls = s.web_search.max_tool_calls.clamp(1, 30);

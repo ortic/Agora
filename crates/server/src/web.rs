@@ -69,6 +69,31 @@ pub async fn search(ws: &WebSearch, api_key: Option<&str>, query: &str) -> Resul
                 })
                 .collect()
         }
+        "serper" => {
+            // Google results through serper.dev
+            let key = api_key.ok_or("Serper needs an API key")?;
+            let r = client
+                .post("https://google.serper.dev/search")
+                .header("X-API-KEY", key)
+                .json(&json!({ "q": query, "num": n }))
+                .send()
+                .await
+                .map_err(|e| format!("Serper can't be reached: {e}"))?;
+            let v = json_or_error(r, "Serper").await?;
+            let mut hits: Vec<SearchHit> = Vec::new();
+            // a direct answer, when Google has one, first
+            if let Some(link) = v["answerBox"]["link"].as_str() {
+                let snippet = v["answerBox"]["answer"].as_str().or(v["answerBox"]["snippet"].as_str()).unwrap_or_default();
+                hits.push(SearchHit { title: v["answerBox"]["title"].as_str().unwrap_or(link).into(), url: link.into(), snippet: snippet.into() });
+            }
+            hits.extend(v["organic"].as_array().into_iter().flatten().map(|r| SearchHit {
+                title: r["title"].as_str().unwrap_or_default().into(),
+                url: r["link"].as_str().unwrap_or_default().into(),
+                snippet: r["snippet"].as_str().unwrap_or_default().into(),
+            }));
+            hits.dedup_by(|a, b| a.url == b.url);
+            hits
+        }
         "tavily" => {
             let key = api_key.ok_or("Tavily needs an API key")?;
             let r = client

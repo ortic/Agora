@@ -36,7 +36,7 @@ when they roll such a tool out.
 - Everyone connects their **own read-only token**, so the wiki's permissions apply to every search: Agora never sees a page the person couldn't open
 
 **Web search, tracked**
-- SearXNG, Brave Search API or Tavily, plus page reads, as tools the model decides to use; or Claude's own web search
+- SearXNG, Brave Search API, Serper (Google results) or Tavily, plus page reads, as tools the model decides to use; or Claude's own web search
 - **Every search and page read is recorded**: who, which chat, query or URL, engine, result URLs, status
 - Private network addresses are never fetched (DNS checked and pinned, redirects re-checked); block list for domains
 
