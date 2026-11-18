@@ -79,6 +79,15 @@ ollama serve                        # listens on 127.0.0.1:11434
 ollama pull gpt-oss:20b             # or qwen3, llama3.3, mistral-small, …
 ```
 
+Set a sensible context length: Ollama otherwise sizes it from the GPU memory (up to 256k tokens),
+and that KV cache alone can exhaust memory: `OLLAMA_CONTEXT_LENGTH=32768 ollama serve`.
+
+**Windows on ARM / WSL (e.g. NVIDIA RTX Spark):** Ollama's Linux ARM64 build uses the GPU through
+WSL with its CUDA 13 backend (compute capability 12.1; the CUDA 12 backend skips it). Start it with
+`LD_LIBRARY_PATH=/usr/lib/wsl/lib`. The GPU shares memory with WSL, so WSL's memory limit
+(`memory=` in `%UserProfile%\.wslconfig`, default half the RAM) caps the model size: raise it
+(e.g. `memory=96GB`, then `wsl --shutdown`) for models beyond ~20 GB such as `gpt-oss:120b`.
+
 In Agora: *Connect a provider → Ollama on this machine* (base URL `http://127.0.0.1:11434/v1`),
 then *Add models*. Mark it in its description as the model for confidential data: nothing leaves
 your network. vLLM (`vllm serve <model>`, base URL `http://host:8000/v1`) is the better choice for

@@ -36,6 +36,14 @@ host: npm runs in the `node:22-bookworm-slim` image.
   itself has 24 GB RAM). Ollama for linux-arm64 is unpacked in `~/.local/ollama` (CUDA 12/13
   backends); starting it is left to the user.
 
+- Local model on the GPU, verified (2026-11-18): Ollama 0.40 linux-arm64 in WSL sees the RTX Spark
+  N1X through the CUDA 13 backend (cc 12.1, `type=iGPU`, 110 GiB total but only ~21.7 GiB
+  available: shared with WSL's 24 GB limit). qwen3:4b: 37/37 layers on the GPU, ~45 tok/s output,
+  ~5,000 tok/s prompt. Through Agora it called the wiki tool on its own and answered with a
+  citation. But Ollama's default context (262,144 tokens, sized from the GPU memory) made the
+  chat take ~3 min and drove WSL out of memory → set `OLLAMA_CONTEXT_LENGTH` (e.g. 32768) and
+  raise `memory=` in .wslconfig for bigger models.
+
 ### Next
 - Integration tests in `crates/server/tests` (mock provider, fresh database per test)
 - TaskCraft connector once its API is known; MCP servers as tools
