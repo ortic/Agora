@@ -24,7 +24,14 @@ pub struct Record<'a> {
 
 /// Stores a usage event; returns its cost.
 pub async fn record(state: &AppState, r: Record<'_>) -> f64 {
-    let cost = r.model.cost(&r.usage);
+    record_reported(state, r, 0.0).await
+}
+
+/// Stores a usage event whose provider says what it cost (`reported`): that counts when the
+/// model has no prices of its own, so budgets hold for it too.
+pub async fn record_reported(state: &AppState, r: Record<'_>, reported: f64) -> f64 {
+    let priced = r.model.cost(&r.usage);
+    let cost = if priced > 0.0 { priced } else { reported.max(0.0) };
     let res = sqlx::query(
         "INSERT INTO usage_events (id, user_id, chat_id, message_id, model_id, provider_id, model_name, source, input_tokens, output_tokens,
                                    cache_read_tokens, cache_write_tokens, provider_searches, cost_usd, latency_ms, status, error)

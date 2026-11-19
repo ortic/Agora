@@ -248,6 +248,11 @@ pub(super) async fn run(job: Job, hub: Arc<Hub>, cancel: CancellationToken) {
     let (earlier, last) = messages.split_at(messages.len() - 1);
     let question: Vec<Value> = llm::anthropic::messages_json(last).first().and_then(|m| m["content"].as_array().cloned()).unwrap_or_default();
 
+    // one answer can't spend more than what is left of the person's budget
+    let budget_left = match crate::usage::budget(&state, job.user.id, &job.settings).await {
+        Ok(b) => b.limit.map(|l| (l - b.spent).max(0.01)),
+        Err(_) => None,
+    };
     let token = crate::auth::random_token();
     let search_key = ws.api_key_enc.as_deref().and_then(base64_decode).and_then(|k| state.secrets.decrypt(&k).ok());
     let run = Arc::new(McpRun {
@@ -280,7 +285,8 @@ pub(super) async fn run(job: Job, hub: Arc<Hub>, cancel: CancellationToken) {
             {
                 content.insert(0, json!({ "type": "text", "text": t }));
             }
-            let spec = Spec { dir: &dir, token: &token, system: &system, session, content, subagents, tool_secs, has_tools: !run.tools.is_empty() };
+            let spec =
+                Spec { dir: &dir, token: &token, system: &system, session, content, subagents, tool_secs, has_tools: !run.tools.is_empty(), budget_left };
             ran = claude(&job, &hub, &ep, &cancel, spec).await;
             if ran.error.is_none() || ran.produced || cancel.is_cancelled() {
                 break;
@@ -289,7 +295,7 @@ pub(super) async fn run(job: Job, hub: Arc<Hub>, cancel: CancellationToken) {
     }
     state.mcp_runs.remove(&token);
 
-    let cost = crate::usage::record(
+    let cost = crate::usage::record_reported(
         &state,
         crate::usage::Record {
             user: Some(job.user.id),
@@ -308,11 +314,12 @@ pub(super) async fn run(job: Job, hub: Arc<Hub>, cancel: CancellationToken) {
             },
             error: ran.error.clone().filter(|_| !cancel.is_cancelled()),
         },
+        // without prices on the model, what Claude Code itself reports
+        ran.reported_cost,
     )
     .await;
     out.usage = ran.usage;
-    // without prices on the model, what Claude Code itself reports
-    out.cost = if cost > 0.0 { cost } else { ran.reported_cost };
+    out.cost = cost;
     out.model_name = ran.model;
     if cancel.is_cancelled() {
         out.status = "stopped";
@@ -339,6 +346,8 @@ struct Spec<'a> {
     subagents: bool,
     tool_secs: u64,
     has_tools: bool,
+    /// what the person's monthly budget still allows (USD)
+    budget_left: Option<f64>,
 }
 
 /// Runs `claude -p` once and relays what it streams to the chat.
@@ -363,6 +372,9 @@ async fn claude(job: &Job, hub: &Hub, ep: &llm::Endpoint, cancel: &CancellationT
     }
     if let Some(e) = job.effort.as_deref().or(job.model.param_str("effort").as_deref()).filter(|e| matches!(*e, "low" | "medium" | "high" | "xhigh" | "max")) {
         cmd.args(["--effort", e]);
+    }
+    if let Some(left) = spec.budget_left {
+        cmd.args(["--max-budget-usd", &format!("{left:.2}")]);
     }
     cmd.env_remove("CLAUDECODE")
         .env_remove("CLAUDE_CODE_ENTRYPOINT")
