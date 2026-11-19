@@ -78,6 +78,9 @@ open http://localhost:8790      # the first visit creates the owner account
 ```
 
 Then: **Administration → Models → Connect a provider**, add models, and start chatting.
+**Administration → Guide** explains the ways to give Agora its models (the Claude API, Claude Code
+on the server, Ollama or other hardware of your own) step by step; the same guide as a PDF:
+[docs/agora-model-guide.pdf](docs/agora-model-guide.pdf).
 Keep `AGORA_SECRET_KEY` safe and unchanged: it encrypts provider keys and connector tokens.
 
 ## Claude Code as a model

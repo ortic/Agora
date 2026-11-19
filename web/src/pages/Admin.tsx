@@ -1,5 +1,5 @@
 import { NavLink, Route, Routes } from 'react-router-dom'
-import { BarChart3, Bot, FileClock, Globe, LayoutDashboard, MonitorSmartphone, Settings2, Users, UsersRound } from 'lucide-react'
+import { BarChart3, BookOpen, Bot, FileClock, Globe, LayoutDashboard, MonitorSmartphone, Settings2, Users, UsersRound } from 'lucide-react'
 import { canAdmin, type Me } from '../api'
 import { Overview } from './admin/Overview'
 import { UsersAdmin } from './admin/Users'
@@ -11,6 +11,7 @@ import { AuditAdmin } from './admin/Audit'
 import { WebAdmin } from './admin/Web'
 import { DesktopAdmin } from './admin/Desktop'
 import { ChatInspector } from './admin/ChatInspector'
+import { Guide } from './admin/Guide'
 
 export function AdminPage({ me }: { me: Me }) {
   const admin = canAdmin(me.user)
@@ -24,6 +25,7 @@ export function AdminPage({ me }: { me: Me }) {
     { to: '/admin/web', label: 'Web activity', icon: Globe, show: true },
     { to: '/admin/desktop', label: 'Desktop', icon: MonitorSmartphone, show: true },
     { to: '/admin/settings', label: 'Settings', icon: Settings2, show: admin },
+    { to: '/admin/guide', label: 'Guide', icon: BookOpen, show: admin },
   ]
   return (
     <div className="page">
@@ -54,6 +56,7 @@ export function AdminPage({ me }: { me: Me }) {
           <Route path="desktop" element={<DesktopAdmin admin={admin} />} />
           <Route path="chats/:id" element={<ChatInspector />} />
           {admin && <Route path="settings" element={<SettingsAdmin />} />}
+          {admin && <Route path="guide" element={<Guide />} />}
         </Routes>
       </div>
     </div>
