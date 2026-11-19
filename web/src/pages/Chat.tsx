@@ -6,6 +6,8 @@ import {
   BookOpen,
   Bot,
   Brain,
+  Paperclip,
+  X,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
@@ -21,7 +23,7 @@ import {
   Terminal,
   TriangleAlert,
 } from 'lucide-react'
-import { api, ApiError, num, plural, streamEvents, usd, type Chat, type ConnectorInfo, type Me, type Message, type ModelInfo, type Part, type StreamEvent, type ToolPart } from '../api'
+import { api, ApiError, num, plural, streamEvents, usd, type Chat, type ConnectorInfo, type Me, type Message, type ModelInfo, type Part, type StreamEvent, type ToolPart, type AttachmentIn } from '../api'
 import { CopyButton, Dialog, hostOf, Markdown } from '../ui'
 
 interface ChatData {
@@ -29,6 +31,22 @@ interface ChatData {
   messages: Message[]
   live: string[]
 }
+
+/** files of a message typed on the start page, until its chat exists (too large for the router's state) */
+let pendingFiles: AttachmentIn[] = []
+
+const ATTACHABLE = ['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'application/pdf']
+
+function readFile(f: File): Promise<AttachmentIn> {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader()
+    r.onerror = () => reject(new Error(`${f.name} could not be read`))
+    r.onload = () => resolve({ name: f.name, mediaType: f.type, size: f.size, data: String(r.result).split(',')[1] ?? '' })
+    r.readAsDataURL(f)
+  })
+}
+
+const fileSize = (n: number) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)} MB` : `${Math.ceil(n / 1000)} kB`)
 
 interface Pending {
   content: string
@@ -149,13 +167,15 @@ export function ChatPage({ me }: { me: Me }) {
     run(`/messages/${messageId}/stream`, undefined, messageId)
   }
 
-  async function send(content: string, parentId: string | null) {
+  async function send(content: string, parentId: string | null, files: AttachmentIn[] = []) {
     if (!model) return setError('No model is available to you yet. Ask an administrator to connect one.')
-    const body = { content, parentId, modelId: model.id, webSearch: webSearch && model.webSearch, knowledge: useKnowledge, effort: effortShown ? effort : null }
+    const attachments = files.map(({ name, mediaType, data }) => ({ name, mediaType, data }))
+    const body = { content, parentId, attachments, modelId: model.id, webSearch: webSearch && model.webSearch, knowledge: useKnowledge, effort: effortShown ? effort : null }
     if (!id) {
       try {
         const chat = await api.post<Chat>('/chats', { modelId: model.id, systemPrompt: systemPrompt || null, settings: { webSearch, knowledge: useKnowledge, effort } })
         qc.invalidateQueries({ queryKey: ['chats'] })
+        pendingFiles = files
         navigate(`/c/${chat.id}`, { state: { pending: { content, modelId: model.id, webSearch: body.webSearch, knowledge: useKnowledge, effort: body.effort } satisfies Pending } })
       } catch (e) {
         setError(e instanceof Error ? e.message : String(e))
@@ -170,7 +190,9 @@ export function ChatPage({ me }: { me: Me }) {
     const pending = (location.state as { pending?: Pending } | null)?.pending
     if (!id || !pending || !data.data || loadedFor.current !== id) return
     navigate(location.pathname, { replace: true, state: null })
-    run(`/chats/${id}/messages`, { ...pending, parentId: null })
+    const attachments = pendingFiles.map(({ name, mediaType, data }) => ({ name, mediaType, data }))
+    pendingFiles = []
+    run(`/chats/${id}/messages`, { ...pending, parentId: null, attachments })
   }, [id, data.data, location.state]) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function regenerate(assistant: Message) {
@@ -260,7 +282,7 @@ export function ChatPage({ me }: { me: Me }) {
               setEffort={setEffort}
               effortShown={!!effortShown}
               busy={busy}
-              onSend={(t) => send(t, null)}
+              onSend={(t, f) => send(t, null, f)}
               onStop={stop}
               autoFocus
             />
@@ -326,9 +348,9 @@ export function ChatPage({ me }: { me: Me }) {
               setEffort={setEffort}
               effortShown={!!effortShown}
               busy={busy}
-              onSend={(t) => {
+              onSend={(t, f) => {
                 stick.current = true
-                send(t, lastId)
+                send(t, lastId, f)
               }}
               onStop={stop}
             />
@@ -409,11 +431,26 @@ function Composer(props: {
   setEffort: (e: string | null) => void
   effortShown: boolean
   busy: boolean
-  onSend: (text: string) => void
+  onSend: (text: string, files: AttachmentIn[]) => void
   onStop: () => void
   autoFocus?: boolean
 }) {
   const [text, setText] = useState('')
+  const [files, setFiles] = useState<AttachmentIn[]>([])
+  const [fileError, setFileError] = useState<string | null>(null)
+  const picker = useRef<HTMLInputElement>(null)
+  const sees = !!props.model?.vision
+  async function add(list: FileList | File[]) {
+    setFileError(null)
+    const next = [...files]
+    for (const f of Array.from(list)) {
+      if (!ATTACHABLE.includes(f.type)) setFileError(`${f.name}: only images (PNG, JPEG, GIF, WebP) and PDFs can be attached`)
+      else if (f.size > (f.type === 'application/pdf' ? 20e6 : 5e6)) setFileError(`${f.name} is too large (images up to 5 MB, PDFs up to 20 MB)`)
+      else if (next.length >= 8) setFileError('At most 8 files per message')
+      else next.push(await readFile(f))
+    }
+    setFiles(next)
+  }
   const ta = useRef<HTMLTextAreaElement>(null)
   useLayoutEffect(() => {
     const el = ta.current
@@ -423,13 +460,35 @@ function Composer(props: {
   }, [text])
   const canSearch = !!props.model?.webSearch
   function submit() {
-    if (!text.trim() || props.busy) return
-    props.onSend(text)
+    if ((!text.trim() && files.length === 0) || props.busy) return
+    props.onSend(text, files)
     setText('')
+    setFiles([])
   }
   return (
     <div>
-      <div className="composer">
+      <div
+        className="composer"
+        onDragOver={(e) => sees && e.preventDefault()}
+        onDrop={(e) => {
+          if (!sees || e.dataTransfer.files.length === 0) return
+          e.preventDefault()
+          add(e.dataTransfer.files)
+        }}
+      >
+        {(files.length > 0 || fileError) && (
+          <div className="row" style={{ flexWrap: 'wrap', gap: 6, padding: '6px 8px 0' }}>
+            {files.map((f, i) => (
+              <span key={i} className="badge" title={f.mediaType}>
+                <Paperclip size={12} /> {f.name} · {fileSize(f.size)}
+                <button className="icon-btn" style={{ padding: 0, marginLeft: 4 }} aria-label={`Remove ${f.name}`} onClick={() => setFiles(files.filter((_, j) => j !== i))}>
+                  <X size={12} />
+                </button>
+              </span>
+            ))}
+            {fileError && <span className="error-text" style={{ fontSize: 13 }}>{fileError}</span>}
+          </div>
+        )}
         <textarea
           ref={ta}
           rows={1}
@@ -438,6 +497,13 @@ function Composer(props: {
           placeholder={props.model ? `Message ${props.model.name}` : 'Message'}
           aria-label="Message"
           onChange={(e) => setText(e.target.value)}
+          onPaste={(e) => {
+            const pasted = Array.from(e.clipboardData.files)
+            if (sees && pasted.length > 0) {
+              e.preventDefault()
+              add(pasted)
+            }
+          }}
           onKeyDown={(e) => {
             if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
               e.preventDefault()
@@ -446,6 +512,25 @@ function Composer(props: {
           }}
         />
         <div className="bar">
+          <input
+            ref={picker}
+            type="file"
+            multiple
+            hidden
+            accept={ATTACHABLE.join(',')}
+            onChange={(e) => {
+              if (e.target.files) add(e.target.files)
+              e.target.value = ''
+            }}
+          />
+          <button
+            className="toggle"
+            disabled={!sees}
+            title={sees ? 'Attach images or PDFs (or drop or paste them)' : "This model can't read images or PDFs"}
+            onClick={() => picker.current?.click()}
+          >
+            <Paperclip size={14} /> Attach
+          </button>
           <button
             className={`toggle${props.webSearch && canSearch ? ' on' : ''}`}
             disabled={!canSearch}
@@ -488,7 +573,7 @@ function Composer(props: {
               <Square size={14} fill="currentColor" />
             </button>
           ) : (
-            <button className="send-btn" onClick={submit} disabled={!text.trim() || !props.model} title="Send" aria-label="Send">
+            <button className="send-btn" onClick={submit} disabled={(!text.trim() && files.length === 0) || !props.model} title="Send" aria-label="Send">
               <ArrowUp size={18} />
             </button>
           )}
@@ -542,7 +627,22 @@ function UserMessage({ m, siblings, onSwitch, onEdit, busy }: { m: Message; sibl
   }
   return (
     <div className="msg user">
-      <div className="bubble">{m.content}</div>
+      {m.parts.some((p) => p.type === 'attachment') && (
+        <div className="row" style={{ flexWrap: 'wrap', gap: 6, justifyContent: 'flex-end', marginBottom: 4 }}>
+          {m.parts.map((p) =>
+            p.type !== 'attachment' ? null : p.mediaType.startsWith('image/') ? (
+              <a key={p.id} href={`/api/attachments/${p.id}`} target="_blank" rel="noreferrer" title={p.name}>
+                <img src={`/api/attachments/${p.id}`} alt={p.name} style={{ maxHeight: 160, maxWidth: 260, borderRadius: 8, display: 'block' }} />
+              </a>
+            ) : (
+              <a key={p.id} className="badge" href={`/api/attachments/${p.id}`} target="_blank" rel="noreferrer">
+                <FileText size={12} /> {p.name} · {fileSize(p.size)}
+              </a>
+            ),
+          )}
+        </div>
+      )}
+      {m.content && <div className="bubble">{m.content}</div>}
       <div className="tools">
         <BranchNav m={m} siblings={siblings} onSwitch={onSwitch} />
         <CopyButton text={m.content} />
@@ -658,6 +758,11 @@ export function ToolPartView({ p }: { p: ToolPart }) {
         )}
         {p.error && <div className="error-text" style={{ fontSize: 13, whiteSpace: 'pre-wrap' }}>{p.error}</div>}
         {p.output && <pre className="out">{p.output}</pre>}
+        {p.media?.map((f, i) => (
+          <div key={i} className="faint" style={{ fontSize: 13 }}>
+            Shown to the model: {f.name}
+          </div>
+        ))}
       </div>
     </details>
   )
@@ -665,6 +770,7 @@ export function ToolPartView({ p }: { p: ToolPart }) {
 
 function PartView({ p, live }: { p: Part; live: boolean }) {
   if (p.type === 'tool') return <ToolPartView p={p} />
+  if (p.type === 'attachment') return null
   if (p.type === 'agent') {
     return (
       <details className="tool">

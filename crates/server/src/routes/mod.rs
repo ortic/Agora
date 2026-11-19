@@ -36,6 +36,7 @@ pub fn api() -> Router<AppState> {
         .route("/chats/{id}/regenerate", post(chats::regenerate))
         .route("/messages/{id}/stream", get(chats::follow))
         .route("/messages/{id}/stop", post(chats::stop))
+        .route("/attachments/{id}", get(chats::attachment))
         // knowledge sources (RAG)
         .route("/connectors", get(connectors::list))
         .route("/connectors/{id}/token", axum::routing::put(connectors::connect).delete(connectors::disconnect))

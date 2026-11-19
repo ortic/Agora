@@ -40,13 +40,19 @@ pub fn messages_json(system: Option<&str>, msgs: &[Msg]) -> Vec<Value> {
             }
             Msg::Plain { role: Role::User, content } => {
                 // tool results are messages of their own
+                // (the files a tool returned can't be in a tool message: they follow as the user's)
+                let mut returned: Vec<Block> = Vec::new();
                 for b in content {
-                    if let Block::ToolResult { id, content, .. } = b {
+                    if let Block::ToolResult { id, content, media, .. } = b {
                         out.push(json!({ "role": "tool", "tool_call_id": id, "content": content }));
+                        returned.extend(media.iter().map(|m| m.block()));
                     }
                 }
-                let images: Vec<&Block> = content.iter().filter(|b| matches!(b, Block::Image { .. })).collect();
-                let text = text_of(content);
+                let images: Vec<&Block> = content.iter().chain(returned.iter()).filter(|b| matches!(b, Block::Image { .. } | Block::Document { .. })).collect();
+                let mut text = text_of(content);
+                if !returned.is_empty() && text.is_empty() {
+                    text = "[The files the tool calls above returned.]".into();
+                }
                 if images.is_empty() {
                     if !text.is_empty() {
                         out.push(json!({ "role": "user", "content": text }));
@@ -57,6 +63,9 @@ pub fn messages_json(system: Option<&str>, msgs: &[Msg]) -> Vec<Value> {
                         .filter_map(|b| match b {
                             Block::Image { media_type, data } => {
                                 Some(json!({ "type": "image_url", "image_url": { "url": format!("data:{media_type};base64,{data}") } }))
+                            }
+                            Block::Document { media_type, data, name } => {
+                                Some(json!({ "type": "file", "file": { "filename": name, "file_data": format!("data:{media_type};base64,{data}") } }))
                             }
                             _ => None,
                         })
@@ -272,7 +281,7 @@ mod tests {
         let msgs = vec![
             Msg::Plain { role: Role::User, content: vec![Block::Image { media_type: "image/png".into(), data: "AAA".into() }, Block::Text("what?".into())] },
             Msg::Plain { role: Role::Assistant, content: vec![Block::ToolUse { id: "c1".into(), name: "web_search".into(), input: json!({"query": "x"}) }] },
-            Msg::Plain { role: Role::User, content: vec![Block::ToolResult { id: "c1".into(), content: "r".into(), is_error: false }] },
+            Msg::Plain { role: Role::User, content: vec![Block::ToolResult { id: "c1".into(), content: "r".into(), is_error: false, media: vec![] }] },
             Msg::AnthropicRaw { messages: vec![], fallback_text: "earlier answer".into() },
         ];
         let out = messages_json(Some("sys"), &msgs);

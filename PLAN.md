@@ -156,6 +156,9 @@ browser ── /api (JSON, SSE) ──► agora (axum)
 - [x] P1 Summarizing a conversation at 70% of the model's context window (before an answer and between tool rounds); the summary is stored with the answer (`raw.compact`) and replaces what came before in later turns
 - [x] P1 Project instructions (`AGENTS.md` / `CLAUDE.md`), the person's own, and project notes (`.agora/memory.md`) in the system prompt, sent by the app
 - [x] P1 Features withdrawn during an answer stop being run (policy checked per call); call ids of our own on the wire
+- [x] P1 Attachments on messages (images, PDFs; `attachments` table, web and desktop); image and PDF files read by a tool passed to the model
+- [x] P1 Background commands in dev containers (`run_command` with `background`, `command_output`, `stop_command`)
+- [x] P1 Slash commands: defined by admins in the `desktop` feature, from files when allowed; `/compact` (`command` on a message)
 - [ ] P1 Tool results of earlier turns replayed to non-Claude models (today: only the answer's text)
 - [ ] P1 Several replicas: a device is connected to one replica; calls must be routed to it
 - [ ] P2 Per-connector secrets held server-side and handed to the app encrypted per device

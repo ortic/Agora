@@ -23,6 +23,7 @@ when they roll such a tool out.
 - Edit a message or regenerate an answer: each becomes a branch you can flip through (‹ 1 / 2 ›)
 - Answers keep being written when you close the tab; reopen the chat and it picks up the stream; *Stop* at any time
 - Chat list with search, pinning, renaming and automatic titles; per-chat instructions; light and dark theme; works on phones
+- **Images and PDFs** attached to a message (button, drop or paste), for models that read them
 - Tokens, cost and time under every answer
 
 **Models**
@@ -60,6 +61,7 @@ when they roll such a tool out.
 - [Agora Desktop](https://github.com/ortic/AgoraDesktop) is a client of this server: models work on **code in dev containers**, drive **a browser**, and use **local connectors** (MCP servers) on the person's computer
 - **Nothing is available until an administrator grants it**: the app itself, code, the browser and each connector, to everyone or to groups; allowed container images, allowed and blocked sites, and whether the person confirms each change
 - **Long work**: a model can hand parts of the work to **sub-agents** with a context of their own (admins can turn that off), calls that only read run at the same time, and a conversation that outgrows the model's context window is **summarized** and goes on; a project's `AGENTS.md` or `CLAUDE.md` and its notes in `.agora/memory.md` are given to the model
+- **Slash commands** for the app are defined by administrators (`/name` stands for a prompt); commands from people's own files can be turned off
 - Devices sign in through the browser (so single sign-on applies), are listed per person and can be signed out by them or by an administrator
 - **Every tool call is recorded**: who, which computer, which tool with which input, how it ended; in the audit log too
 

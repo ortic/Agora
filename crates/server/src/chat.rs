@@ -146,6 +146,8 @@ pub struct Job {
     pub title_after: bool,
     /// tools on the person's computer (the request came from their desktop app)
     pub desktop: Option<crate::desktop::Session>,
+    /// `compact`: summarize the conversation instead of answering
+    pub command: Option<String>,
 }
 
 /// Starts generating; returns the hub to stream from.
@@ -214,8 +216,17 @@ struct Tooling<'a> {
     search_key: Option<&'a str>,
     sources: &'a [crate::connectors::Linked],
     cancel: &'a CancellationToken,
+    /// images and documents a tool call returned, until its result is built (by the call's address)
+    media: &'a Mutex<HashMap<usize, Vec<llm::Media>>>,
     /// usage and cost of model calls made inside tools (sub-agents, summaries)
     spent: &'a Mutex<(llm::Usage, f64)>,
+}
+
+impl Tooling<'_> {
+    /// Takes what the call returned besides text.
+    fn returned(&self, call: &ToolCall) -> Vec<llm::Media> {
+        self.media.lock().expect("media").remove(&(call as *const ToolCall as usize)).unwrap_or_default()
+    }
 }
 
 /// One model call that isn't shown as it streams; its usage is recorded. `Err` says why it failed.
@@ -261,8 +272,9 @@ fn approx_tokens(messages: &[Msg]) -> i64 {
                 .map(|b| match b {
                     Block::Text(t) => t.len(),
                     Block::Image { .. } => 6000,
+                    Block::Document { data, .. } => data.len() / 8,
                     Block::ToolUse { input, .. } => input.to_string().len() + 40,
-                    Block::ToolResult { content, .. } => content.len() + 20,
+                    Block::ToolResult { content, media, .. } => content.len() + 20 + media.len() * 6000,
                 })
                 .sum::<usize>(),
             Msg::AnthropicRaw { messages, .. } => messages.iter().map(|m| m.to_string().len()).sum(),
@@ -279,14 +291,18 @@ fn compact_at(model: &ModelRow) -> Option<i64> {
 }
 
 /// The message a summary stands in the conversation as, with the user's message it precedes.
-fn summary_message(summary: &str, user: Option<&str>) -> Msg {
+fn summary_message(summary: &str, user: Option<&[Block]>) -> Msg {
+    // the files of the user's message stay with it
+    let mut content: Vec<Block> = user.unwrap_or_default().iter().filter(|b| matches!(b, Block::Image { .. } | Block::Document { .. })).cloned().collect();
+    let user = user.map(|blocks| blocks.iter().filter_map(|b| if let Block::Text(t) = b { Some(t.as_str()) } else { None }).collect::<Vec<_>>().join("\n"));
     let mut s =
         format!("[The conversation up to here was summarized to make room. This is the summary; the original messages are gone.]\n\n{}", summary.trim());
     match user {
         Some(u) => s.push_str(&format!("\n\n[End of the summary. The user's next message:]\n\n{u}")),
         None => s.push_str("\n\n[End of the summary. Go on with the work where it stands; don't ask the user to repeat anything.]"),
     }
-    Msg::user(s)
+    content.push(Block::Text(s));
+    Msg::Plain { role: Role::User, content }
 }
 
 /// Asks the model to summarize `messages` (the conversation so far).
@@ -354,12 +370,26 @@ async fn history(state: &AppState, leaf: Uuid) -> anyhow::Result<Vec<Msg>> {
     .bind(leaf)
     .fetch_all(&state.db)
     .await?;
+    // what people attached to their messages
+    let ids: Vec<Uuid> = rows.iter().filter(|r| r.1 == "user").map(|r| r.0).collect();
+    let files: Vec<(Uuid, String, String, Vec<u8>)> =
+        sqlx::query_as("SELECT message_id, name, media_type, data FROM attachments WHERE message_id = ANY($1) ORDER BY created_at, id")
+            .bind(&ids)
+            .fetch_all(&state.db)
+            .await?;
     let mut out = Vec::new();
-    let mut last_user = String::new();
-    for (_, role, content, raw, status) in rows {
+    let mut last_user: Vec<Block> = Vec::new();
+    for (id, role, content, raw, status) in rows {
         if role == "user" {
-            last_user = content.clone();
-            out.push(Msg::user(content));
+            use base64::Engine;
+            let mut blocks: Vec<Block> = files
+                .iter()
+                .filter(|f| f.0 == id)
+                .map(|f| llm::Media { name: f.1.clone(), media_type: f.2.clone(), data: base64::engine::general_purpose::STANDARD.encode(&f.3) }.block())
+                .collect();
+            blocks.push(Block::Text(content));
+            last_user = blocks.clone();
+            out.push(Msg::Plain { role: Role::User, content: blocks });
             continue;
         }
         // an answer during which the conversation was summarized: what came before is replaced
@@ -368,7 +398,7 @@ async fn history(state: &AppState, leaf: Uuid) -> anyhow::Result<Vec<Msg>> {
             && let Some(summary) = c["summary"].as_str()
         {
             out.clear();
-            out.push(summary_message(summary, c["keepUser"].as_bool().unwrap_or(false).then_some(last_user.as_str())));
+            out.push(summary_message(summary, c["keepUser"].as_bool().unwrap_or(false).then_some(last_user.as_slice())));
         }
         if content.trim().is_empty() {
             continue;
@@ -504,8 +534,18 @@ async fn run(job: Job, hub: Arc<Hub>, cancel: CancellationToken) {
     agent_req.tools.retain(|t| t.name != TASK);
     agent_req.system = Some(format!("{}\n\n{AGENT_NOTE}", agent_req.system.as_deref().unwrap_or_default()));
     let spent = Mutex::new((llm::Usage::default(), 0.0));
-    let tooling =
-        Tooling { http: &http, ep: &ep, agent: &agent_req, agent_calls, search_key: search_key.as_deref(), sources: &sources, cancel: &cancel, spent: &spent };
+    let media = Mutex::new(HashMap::new());
+    let tooling = Tooling {
+        http: &http,
+        ep: &ep,
+        agent: &agent_req,
+        agent_calls,
+        search_key: search_key.as_deref(),
+        sources: &sources,
+        cancel: &cancel,
+        media: &media,
+        spent: &spent,
+    };
     // a conversation too long for the model is summarized: before the answer, and again
     // whenever the tool results of this answer fill the context
     let limit = compact_at(&job.model);
@@ -516,15 +556,29 @@ async fn run(job: Job, hub: Arc<Hub>, cancel: CancellationToken) {
         && let Some(summary) = summarize(&job, &hub, &tooling, &req, &messages[..messages.len() - 1]).await
     {
         let question = match messages.last() {
-            Some(Msg::Plain { content, .. }) => {
-                content.iter().filter_map(|b| if let Block::Text(t) = b { Some(t.as_str()) } else { None }).collect::<Vec<_>>().join("\n")
-            }
-            _ => String::new(),
+            Some(Msg::Plain { content, .. }) => content.clone(),
+            _ => vec![],
         };
         messages = vec![summary_message(&summary, Some(&question))];
         compacted = Some(json!({ "summary": summary, "keepUser": true }));
     }
-    for round in 0..(max_calls + 4) {
+    // `/compact`: the person asked for the summary themselves; nothing is answered
+    let summarize_only = job.command.as_deref() == Some("compact");
+    if summarize_only {
+        let said = if messages.len() < 3 {
+            "There is nothing to summarize yet.".to_string()
+        } else if let Some(summary) = summarize(&job, &hub, &tooling, &req, &messages[..messages.len() - 1]).await {
+            let n = summary.chars().count();
+            compacted = Some(json!({ "summary": summary, "keepUser": false }));
+            format!("The conversation so far was summarized ({n} characters); the next answers start from that summary.")
+        } else {
+            out.status = "error";
+            out.error = Some("The conversation couldn't be summarized.".into());
+            String::new()
+        };
+        hub.publish(json!({ "type": "text", "d": said }));
+    }
+    for round in 0..(if summarize_only { 0 } else { max_calls + 4 }) {
         if cancel.is_cancelled() {
             out.status = "stopped";
             break;
@@ -653,7 +707,7 @@ async fn run(job: Job, hub: Arc<Hub>, cancel: CancellationToken) {
                         }))
                         .await;
                     for (call, (content, is_error)) in calls[i..j].iter().zip(outs) {
-                        results.push(Block::ToolResult { id: call.id.clone(), content, is_error });
+                        results.push(Block::ToolResult { id: call.id.clone(), content, is_error, media: tooling.returned(call) });
                     }
                     i = j;
                 }
@@ -739,7 +793,7 @@ fn reads_only(job: &Job, sources: &[crate::connectors::Linked], name: &str) -> b
     job.desktop
         .as_ref()
         .and_then(|d| d.find(name))
-        .is_some_and(|t| t.feature == "code" && matches!(t.remote_name.as_str(), "list_files" | "read_file" | "search_files"))
+        .is_some_and(|t| t.feature == "code" && matches!(t.remote_name.as_str(), "list_files" | "read_file" | "search_files" | "command_output"))
 }
 
 /// A sub-agent: the same model with the same tools and an empty context works on
@@ -798,7 +852,7 @@ fn run_agent<'a>(job: &'a Job, hub: &'a Hub, call: &'a ToolCall, t: &'a Tooling<
                             hub.publish(part("running", steps, "", None));
                             run_tool(job, hub, c, t, Some(&id)).await
                         };
-                        results.push(Block::ToolResult { id: c.id.clone(), content, is_error });
+                        results.push(Block::ToolResult { id: c.id.clone(), content, is_error, media: t.returned(c) });
                     }
                     messages.push(Msg::Plain { role: Role::User, content: results });
                 }
@@ -830,7 +884,7 @@ async fn run_tool(job: &Job, hub: &Hub, call: &ToolCall, t: &Tooling<'_>, agent:
             return run_agent(job, hub, call, t).await;
         }
         if let Some(tool) = session.find(&call.name) {
-            return run_desktop_tool(job, hub, session, tool, call, cancel, agent).await;
+            return run_desktop_tool(job, hub, session, tool, call, cancel, agent, t.media).await;
         }
     }
     if let Some(src) = sources.iter().find(|s| s.tool == call.name) {
@@ -924,6 +978,7 @@ async fn run_desktop_tool(
     call: &ToolCall,
     cancel: &CancellationToken,
     agent: Option<&str>,
+    returned: &Mutex<HashMap<usize, Vec<llm::Media>>>,
 ) -> (String, bool) {
     let started = Instant::now();
     // an id of our own: the model's ids repeat between answers and sub-agents
@@ -945,10 +1000,21 @@ async fn run_desktop_tool(
         hub.publish(part("running", &so_far, None));
     })
     .await;
-    match done.status {
-        "ok" => hub.publish(part("done", &done.content, None)),
-        status => hub.publish(part(status, "", Some(&done.content))),
+    let mut done = done;
+    let files = std::mem::take(&mut done.media);
+    let mut ended = match done.status {
+        "ok" => part("done", &done.content, None),
+        status => part(status, "", Some(&done.content)),
+    };
+    if !files.is_empty() {
+        ended["part"]["media"] = json!(files.iter().map(|m| json!({ "name": m.name, "mediaType": m.media_type })).collect::<Vec<_>>());
+        if job.model.cap("vision") {
+            returned.lock().expect("media").insert(call as *const ToolCall as usize, files);
+        } else {
+            done.content.push_str("\n[The file itself wasn't passed on: this model can't read images or PDFs.]");
+        }
     }
+    hub.publish(ended);
     crate::desktop::record(&job.state, job.user.id, session, tool, job.chat_id, job.assistant_msg, input, &done, started).await;
     let full = job.settings.audit_content == "full";
     crate::audit::log(

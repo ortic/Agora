@@ -176,6 +176,8 @@ function FeatureCard({ k, title, about, feature, groups }: { k: FeatureKey; titl
     toolTimeoutSecs: text(c.toolTimeoutSecs, '600'),
     subagents: c.subagents !== false,
     maxSubagentToolCalls: text(c.maxSubagentToolCalls, '30'),
+    commands: (Array.isArray(c.commands) ? c.commands : []) as { name: string; description: string; prompt: string }[],
+    fileCommands: c.fileCommands !== false,
     images: list(c.images),
     defaultImage: text(c.defaultImage),
     network: c.network !== false,
@@ -202,6 +204,8 @@ function FeatureCard({ k, title, about, feature, groups }: { k: FeatureKey; titl
               toolTimeoutSecs: int(f.toolTimeoutSecs, 600),
               subagents: f.subagents,
               maxSubagentToolCalls: int(f.maxSubagentToolCalls, 30),
+              commands: f.commands.filter((x) => x.name.trim() || x.prompt.trim()),
+              fileCommands: f.fileCommands,
             }
           : k === 'code'
             ? { images: lines(f.images), defaultImage: f.defaultImage.trim(), network: f.network, approval: f.approval, commandTimeoutSecs: int(f.commandTimeoutSecs, 300) }
@@ -264,6 +268,50 @@ function FeatureCard({ k, title, about, feature, groups }: { k: FeatureKey; titl
               <div className="hint">On top of the answer's own limit.</div>
             </label>
           )}
+        </div>
+      )}
+      {f.access !== 'nobody' && k === 'desktop' && (
+        <div style={{ marginTop: 12 }}>
+          <div className="row">
+            <strong className="grow">Slash commands</strong>
+            <button className="btn" onClick={() => set({ commands: [...f.commands, { name: '', description: '', prompt: '' }] })}>
+              Add a command
+            </button>
+          </div>
+          <div className="hint">
+            Typing /name in the app sends the prompt. <code>$ARGUMENTS</code> in the prompt stands for what the person types after the name.
+          </div>
+          {f.commands.map((cmd, i) => {
+            const change = (patch: Partial<typeof cmd>) => set({ commands: f.commands.map((x, j) => (j === i ? { ...x, ...patch } : x)) })
+            return (
+              <div key={i} className="card" style={{ marginTop: 8 }}>
+                <div className="two-col">
+                  <label className="field">
+                    <span>Name</span>
+                    <input className="input" value={cmd.name} placeholder="review" onChange={(e) => change({ name: e.target.value })} />
+                  </label>
+                  <label className="field">
+                    <span>What it does (shown in the list)</span>
+                    <input className="input" value={cmd.description} onChange={(e) => change({ description: e.target.value })} />
+                  </label>
+                </div>
+                <label className="field">
+                  <span>Prompt</span>
+                  <textarea className="input" rows={4} value={cmd.prompt} onChange={(e) => change({ prompt: e.target.value })} />
+                </label>
+                <button className="btn" onClick={() => set({ commands: f.commands.filter((_, j) => j !== i) })}>
+                  Remove
+                </button>
+              </div>
+            )
+          })}
+          <label className="field" style={{ marginTop: 10 }}>
+            <span>Commands from files</span>
+            <select className="input" value={f.fileCommands ? 'on' : 'off'} onChange={(e) => set({ fileCommands: e.target.value === 'on' })}>
+              <option value="on">People may add their own (in a project's .agora/commands, or in the app's settings folder)</option>
+              <option value="off">Only the commands above</option>
+            </select>
+          </label>
         </div>
       )}
       {f.access !== 'nobody' && k === 'code' && (

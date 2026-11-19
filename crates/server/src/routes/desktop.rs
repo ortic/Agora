@@ -339,6 +339,7 @@ async fn serve(state: AppState, user_id: Uuid, device_id: Uuid, policy: desktop:
                             content: v["content"].as_str().unwrap_or_default().to_string(),
                             is_error: v["isError"].as_bool().unwrap_or(false),
                             status: v["status"].as_str().unwrap_or("ok").to_string(),
+                            media: returned_media(&v["media"]),
                         },
                     );
                 }
@@ -414,7 +415,19 @@ pub async fn admin_put_feature(
     // normalised through the typed settings: unknown fields go, wrong types are refused
     let config = match (key.as_str(), req.config.clone().filter(Value::is_object)) {
         (_, None) => None,
-        ("desktop", Some(c)) => Some(serde_json::to_value(serde_json::from_value::<desktop::GeneralConfig>(c)?)?),
+        ("desktop", Some(c)) => {
+            let mut c: desktop::GeneralConfig = serde_json::from_value(c)?;
+            for cmd in &mut c.commands {
+                cmd.name = cmd.name.trim().trim_start_matches('/').to_ascii_lowercase();
+                if cmd.name.is_empty() || !cmd.name.chars().all(|ch| ch.is_ascii_alphanumeric() || ch == '-' || ch == '_') {
+                    return Err(ApiError::bad("a command's name is letters, digits, - and _"));
+                }
+                if cmd.prompt.trim().is_empty() {
+                    return Err(ApiError::bad(format!("/{} has no prompt", cmd.name)));
+                }
+            }
+            Some(serde_json::to_value(c)?)
+        }
         ("code", Some(c)) => {
             let mut c: desktop::CodeConfig = serde_json::from_value(c)?;
             c.images = c.images.iter().map(|i| i.trim().to_string()).filter(|i| !i.is_empty()).collect();
@@ -702,4 +715,22 @@ pub async fn admin_tool_events(State(state): State<AppState>, AuditorUser(_): Au
         })).collect::<Vec<_>>(),
         "more": rows.len() as i64 == limit,
     })))
+}
+
+/// The files a tool result carries: a few images or PDFs of bounded size.
+fn returned_media(v: &Value) -> Vec<crate::llm::Media> {
+    v.as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|m| {
+            let media_type = m["mediaType"].as_str()?;
+            let data = m["data"].as_str()?;
+            (crate::routes::chats::media_allowed(media_type) && data.len() <= 9_000_000).then(|| crate::llm::Media {
+                media_type: media_type.to_string(),
+                data: data.to_string(),
+                name: m["name"].as_str().unwrap_or("file").chars().take(200).collect(),
+            })
+        })
+        .take(4)
+        .collect()
 }

@@ -226,6 +226,81 @@ pub struct SendRequest {
     effort: Option<String>,
     /// from the desktop app: which tools on the person's computer this answer may use
     desktop: Option<crate::desktop::Wanted>,
+    /// images and PDFs sent with the message
+    #[serde(default)]
+    attachments: Vec<AttachmentIn>,
+    /// `compact`: summarize the conversation so far instead of answering
+    command: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AttachmentIn {
+    name: String,
+    media_type: String,
+    /// base64
+    data: String,
+}
+
+const MAX_ATTACHMENTS: usize = 8;
+const MAX_IMAGE_BYTES: usize = 5 * 1024 * 1024;
+const MAX_ATTACHMENT_BYTES: usize = 20 * 1024 * 1024;
+
+/// What models can be given as a file.
+pub fn media_allowed(media_type: &str) -> bool {
+    matches!(media_type, "image/png" | "image/jpeg" | "image/gif" | "image/webp" | "application/pdf")
+}
+
+/// Checks and decodes what was attached to a message.
+fn attachments(model: &crate::catalog::ModelRow, list: &[AttachmentIn]) -> ApiResult<Vec<(String, String, Vec<u8>)>> {
+    use base64::Engine;
+    if list.is_empty() {
+        return Ok(vec![]);
+    }
+    if list.len() > MAX_ATTACHMENTS {
+        return Err(ApiError::bad(format!("at most {MAX_ATTACHMENTS} files per message")));
+    }
+    if !model.cap("vision") {
+        return Err(ApiError::bad("this model can't read images or PDFs; choose another model or remove the files"));
+    }
+    let mut out = Vec::new();
+    let mut total = 0;
+    for a in list {
+        if !media_allowed(&a.media_type) {
+            return Err(ApiError::bad(format!("{}: only images (PNG, JPEG, GIF, WebP) and PDFs can be attached", a.name)));
+        }
+        let bytes = base64::engine::general_purpose::STANDARD.decode(a.data.trim()).map_err(|_| ApiError::bad(format!("{}: not valid base64", a.name)))?;
+        let limit = if a.media_type == "application/pdf" { MAX_ATTACHMENT_BYTES } else { MAX_IMAGE_BYTES };
+        total += bytes.len();
+        if bytes.is_empty() || bytes.len() > limit || total > MAX_ATTACHMENT_BYTES {
+            return Err(ApiError::bad(format!("{}: too large (images up to 5 MB, 20 MB per message)", a.name)));
+        }
+        let name: String = a.name.trim().chars().filter(|c| !c.is_control()).take(200).collect();
+        out.push((if name.is_empty() { "file".to_string() } else { name }, a.media_type.clone(), bytes));
+    }
+    Ok(out)
+}
+
+/// `GET /api/attachments/{id}`: a file of one of the person's own messages.
+pub async fn attachment(State(state): State<AppState>, CurrentUser(user): CurrentUser, Path(id): Path<Uuid>) -> ApiResult<Response> {
+    let row: Option<(String, String, Vec<u8>)> = sqlx::query_as(
+        "SELECT a.name, a.media_type, a.data FROM attachments a JOIN messages m ON m.id = a.message_id JOIN chats c ON c.id = m.chat_id
+          WHERE a.id = $1 AND c.user_id = $2 AND c.deleted_at IS NULL",
+    )
+    .bind(id)
+    .bind(user.id)
+    .fetch_optional(&state.db)
+    .await?;
+    let (_, media_type, data) = row.ok_or(ApiError::NotFound("file"))?;
+    // only the types we accepted, and never rendered as a page of our origin
+    let headers = [
+        (axum::http::header::CONTENT_TYPE, media_type),
+        (axum::http::header::CONTENT_DISPOSITION, "inline".to_string()),
+        (axum::http::header::X_CONTENT_TYPE_OPTIONS, "nosniff".to_string()),
+        (axum::http::header::CONTENT_SECURITY_POLICY, "sandbox; default-src 'none'".to_string()),
+        (axum::http::header::CACHE_CONTROL, "private, max-age=86400".to_string()),
+    ];
+    Ok((headers, data).into_response())
 }
 
 /// `POST /api/chats/{id}/messages`: sends a message and streams the answer (SSE).
@@ -239,8 +314,12 @@ pub async fn send(
 ) -> ApiResult<Response> {
     let chat = own_chat(&state, &user, id).await?;
     let content = req.content.trim_end().to_string();
-    if content.trim().is_empty() {
+    if content.trim().is_empty() && req.attachments.is_empty() {
         return Err(ApiError::bad("the message is empty"));
+    }
+    let command = req.command.as_deref().map(str::trim).filter(|c| !c.is_empty());
+    if command.is_some_and(|c| c != "compact") {
+        return Err(ApiError::bad("unknown command"));
     }
     if content.chars().count() > MAX_MESSAGE_CHARS {
         return Err(ApiError::bad(format!("the message is too long (at most {MAX_MESSAGE_CHARS} characters)")));
@@ -261,16 +340,32 @@ pub async fn send(
     let model_id = req.model_id.or(chat.model_id).or(settings.default_model_id).ok_or_else(|| ApiError::bad("choose a model"))?;
     let model = crate::catalog::for_user(&state, &user, model_id).await?;
     crate::usage::check(&state, &user, &settings).await?;
+    let files = attachments(&model, &req.attachments)?;
     let user_msg = new_id();
     let assistant_msg = new_id();
     let mut tx = state.db.begin().await?;
-    sqlx::query("INSERT INTO messages (id, chat_id, parent_id, role, content) VALUES ($1, $2, $3, 'user', $4)")
+    let files: Vec<(Uuid, String, String, Vec<u8>)> = files.into_iter().map(|(name, kind, data)| (new_id(), name, kind, data)).collect();
+    let parts: Vec<Value> =
+        files.iter().map(|(fid, name, kind, data)| json!({ "type": "attachment", "id": fid, "name": name, "mediaType": kind, "size": data.len() })).collect();
+    sqlx::query("INSERT INTO messages (id, chat_id, parent_id, role, content, parts) VALUES ($1, $2, $3, 'user', $4, $5)")
         .bind(user_msg)
         .bind(id)
         .bind(req.parent_id)
         .bind(&content)
+        .bind(Value::Array(parts))
         .execute(&mut *tx)
         .await?;
+    for (fid, name, kind, data) in &files {
+        sqlx::query("INSERT INTO attachments (id, message_id, name, media_type, size_bytes, data) VALUES ($1, $2, $3, $4, $5, $6)")
+            .bind(fid)
+            .bind(user_msg)
+            .bind(name)
+            .bind(kind)
+            .bind(data.len() as i32)
+            .bind(data)
+            .execute(&mut *tx)
+            .await?;
+    }
     sqlx::query("INSERT INTO messages (id, chat_id, parent_id, role, model_id, model_name, status, created_at) VALUES ($1, $2, $3, 'assistant', $4, $5, 'streaming', now() + interval '1 millisecond')")
         .bind(assistant_msg)
         .bind(id)
@@ -300,12 +395,14 @@ pub async fn send(
         "chat.prompt",
         Some(("chat", id.to_string())),
         json!({ "messageId": user_msg, "model": model.model, "modelId": model.id, "webSearch": web, "edit": req.parent_id.is_none() && chat.leaf_id.is_some(),
-                "chars": content.chars().count(), "content": full.then_some(&content) }),
+                "chars": content.chars().count(), "content": full.then_some(&content),
+                "attachments": files.iter().map(|f| json!({ "name": f.1, "mediaType": f.2, "size": f.3.len() })).collect::<Vec<_>>(), "command": command }),
     )
     .await;
-    let title_after = req.parent_id.is_none() && chat.title == "New chat";
+    let title_after = req.parent_id.is_none() && chat.title == "New chat" && command.is_none();
     let desktop = desktop_session(&state, &user, device, req.desktop.as_ref()).await;
-    stream_answer(&state, user, client, settings, &chat, model, user_msg, assistant_msg, web, knowledge, req.effort, title_after, desktop).await
+    let command = command.map(String::from);
+    stream_answer(&state, user, client, settings, &chat, model, user_msg, assistant_msg, web, knowledge, req.effort, title_after, desktop, command).await
 }
 
 #[derive(Deserialize)]
@@ -370,7 +467,7 @@ pub async fn regenerate(
     let web = req.web_search.unwrap_or_else(|| chat.settings["webSearch"].as_bool().unwrap_or(false));
     let knowledge = req.knowledge.unwrap_or_else(|| chat.settings["knowledge"].as_bool().unwrap_or(false));
     let desktop = desktop_session(&state, &user, device, req.desktop.as_ref()).await;
-    stream_answer(&state, user, client, settings, &chat, model, m.id, assistant_msg, web, knowledge, req.effort, false, desktop).await
+    stream_answer(&state, user, client, settings, &chat, model, m.id, assistant_msg, web, knowledge, req.effort, false, desktop, None).await
 }
 
 async fn stream_answer(
@@ -387,6 +484,7 @@ async fn stream_answer(
     effort: Option<String>,
     title_after: bool,
     desktop: Option<crate::desktop::Session>,
+    command: Option<String>,
 ) -> ApiResult<Response> {
     let effort =
         effort.filter(|e| matches!(e.as_str(), "low" | "medium" | "high" | "xhigh" | "max")).or_else(|| chat.settings["effort"].as_str().map(String::from));
@@ -410,6 +508,7 @@ async fn stream_answer(
         effort,
         title_after,
         desktop,
+        command,
     };
     let (hub, _snap, seq, rx) = chat::start(job);
     let stream = chat::sse_stream(hub, vec![first], seq, rx);

@@ -18,7 +18,17 @@ fn block_json(b: &Block) -> Option<Value> {
         Block::Text(t) => json!({ "type": "text", "text": t }),
         Block::Image { media_type, data } => json!({ "type": "image", "source": { "type": "base64", "media_type": media_type, "data": data } }),
         Block::ToolUse { id, name, input } => json!({ "type": "tool_use", "id": id, "name": name, "input": input }),
-        Block::ToolResult { id, content, is_error } => json!({ "type": "tool_result", "tool_use_id": id, "content": content, "is_error": is_error }),
+        Block::Document { media_type, data, name } => {
+            json!({ "type": "document", "title": name, "source": { "type": "base64", "media_type": media_type, "data": data } })
+        }
+        Block::ToolResult { id, content, is_error, media } if media.is_empty() => {
+            json!({ "type": "tool_result", "tool_use_id": id, "content": content, "is_error": is_error })
+        }
+        Block::ToolResult { id, content, is_error, media } => {
+            let mut blocks = vec![json!({ "type": "text", "text": if content.trim().is_empty() { "(see the attached file)" } else { content.as_str() } })];
+            blocks.extend(media.iter().filter_map(|m| block_json(&m.block())));
+            json!({ "type": "tool_result", "tool_use_id": id, "content": blocks, "is_error": is_error })
+        }
     })
 }
 

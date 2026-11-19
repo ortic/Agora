@@ -57,6 +57,12 @@ pub enum Block {
         media_type: String,
         data: String,
     },
+    /// base64 document (PDF)
+    Document {
+        media_type: String,
+        data: String,
+        name: String,
+    },
     ToolUse {
         id: String,
         name: String,
@@ -66,7 +72,31 @@ pub enum Block {
         id: String,
         content: String,
         is_error: bool,
+        /// images and documents the tool returned
+        media: Vec<Media>,
     },
+}
+
+/// An image or a document, base64.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Media {
+    pub media_type: String,
+    pub data: String,
+    pub name: String,
+}
+
+impl Media {
+    pub fn is_image(&self) -> bool {
+        self.media_type.starts_with("image/")
+    }
+
+    pub fn block(&self) -> Block {
+        if self.is_image() {
+            Block::Image { media_type: self.media_type.clone(), data: self.data.clone() }
+        } else {
+            Block::Document { media_type: self.media_type.clone(), data: self.data.clone(), name: self.name.clone() }
+        }
+    }
 }
 
 #[derive(Debug, Clone)]

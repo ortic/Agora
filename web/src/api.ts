@@ -158,6 +158,7 @@ export type Part =
   | { type: 'fetch'; id: string; url: string; title?: string; status: 'running' | 'done' | 'error'; error?: string | null }
   | { type: 'knowledge'; id: string; source: string; query: string; status: 'running' | 'done' | 'error'; results?: SearchHit[]; error?: string | null }
   | ToolPart
+  | { type: 'attachment'; id: string; name: string; mediaType: string; size: number }
   | { type: 'agent'; id: string; description: string; prompt: string; status: 'running' | 'done' | 'error' | 'stopped'; steps: number; output?: string; error?: string | null }
   | { type: 'compaction'; id: string; status: 'running' | 'done' | 'error'; error?: string | null }
 
@@ -174,6 +175,16 @@ export interface ToolPart {
   status: 'running' | 'done' | 'error' | 'denied' | 'blocked' | 'timeout'
   output?: string
   error?: string | null
+  /** images and PDFs the tool showed the model */
+  media?: { name: string; mediaType: string }[]
+}
+
+/** An image or a PDF sent with a message (base64). */
+export interface AttachmentIn {
+  name: string
+  mediaType: string
+  data: string
+  size: number
 }
 
 export interface Device {

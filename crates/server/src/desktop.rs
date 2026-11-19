@@ -47,11 +47,24 @@ pub struct GeneralConfig {
     pub subagents: bool,
     /// Tool calls one sub-agent may make.
     pub max_subagent_tool_calls: u32,
+    /// Slash commands of the organization: `/name` in the app stands for a prompt.
+    pub commands: Vec<SlashCommand>,
+    /// May people use commands from files (the project's `.agora/commands`, their own)?
+    pub file_commands: bool,
+}
+
+/// `/name arguments` in the app sends `prompt`, with `$ARGUMENTS` replaced.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct SlashCommand {
+    pub name: String,
+    pub description: String,
+    pub prompt: String,
 }
 
 impl Default for GeneralConfig {
     fn default() -> Self {
-        GeneralConfig { max_tool_calls: 60, tool_timeout_secs: 600, subagents: true, max_subagent_tool_calls: 30 }
+        GeneralConfig { max_tool_calls: 60, tool_timeout_secs: 600, subagents: true, max_subagent_tool_calls: 30, commands: vec![], file_commands: true }
     }
 }
 
@@ -245,7 +258,7 @@ pub fn code_tools() -> Vec<ToolDef> {
         ),
         tool(
             "read_file",
-            "Read a text file of the project. Lines come numbered. Long files are cut off: read on with `offset`.",
+            "Read a file of the project. Text comes with numbered lines; long files are cut off: read on with `offset`. Images (png, jpg, gif, webp) and PDFs are shown to you as they are.",
             json!({
                 "path": { "type": "string", "description": "File relative to the project root" },
                 "offset": { "type": "integer", "description": "First line to read (1-based, default 1)" },
@@ -288,10 +301,21 @@ pub fn code_tools() -> Vec<ToolDef> {
             "Run a shell command in the project's dev container (bash, working directory: the project root) and get its output and exit code. Use it to build, test, format, run git, install packages. Commands don't keep state between calls except for the files they change; they can't ask for input.",
             json!({
                 "command": { "type": "string", "description": "The command line" },
-                "timeoutSecs": { "type": "integer", "description": "Stop the command after this many seconds (default 120)" }
+                "timeoutSecs": { "type": "integer", "description": "Stop the command after this many seconds (default 120)" },
+                "background": { "type": "boolean", "description": "Start it and return at once with an id (dev servers, watchers, long builds). Read what it prints with command_output, end it with stop_command." }
             }),
             &["command"],
         ),
+        tool(
+            "command_output",
+            "What a background command printed since you last asked, and whether it still runs (or its exit code).",
+            json!({
+                "id": { "type": "string", "description": "The id run_command returned" },
+                "waitSecs": { "type": "integer", "description": "Wait up to this many seconds for new output or the end (default 0, at most 60)" }
+            }),
+            &["id"],
+        ),
+        tool("stop_command", "End a background command.", json!({ "id": { "type": "string", "description": "The id run_command returned" } }), &["id"]),
     ]
 }
 
@@ -525,6 +549,8 @@ pub enum Reply {
         is_error: bool,
         /// ok | error | denied
         status: String,
+        /// images and documents (a file the model read)
+        media: Vec<crate::llm::Media>,
     },
 }
 
@@ -568,11 +594,12 @@ pub struct Done {
     pub is_error: bool,
     /// ok | error | denied | blocked | timeout
     pub status: &'static str,
+    pub media: Vec<crate::llm::Media>,
 }
 
 impl Done {
     fn failed(status: &'static str, msg: impl Into<String>) -> Done {
-        Done { content: msg.into(), is_error: true, status }
+        Done { content: msg.into(), is_error: true, status, media: vec![] }
     }
 }
 
@@ -649,7 +676,7 @@ pub async fn call(
             _ = &mut deadline => return forget("timeout", "The tool took too long and was stopped."),
             r = rx.recv() => match r {
                 Some(Reply::Progress(text)) => progress(&text.replace('\0', "")),
-                Some(Reply::Result { content, is_error, status }) => {
+                Some(Reply::Result { content, is_error, status, media }) => {
                     let status = match status.as_str() {
                         "denied" => "denied",
                         _ if is_error => "error",
@@ -662,7 +689,7 @@ pub async fn call(
                     if status == "denied" && content.trim().is_empty() {
                         content = "The user declined this action.".into();
                     }
-                    return Done { content, is_error: is_error || status == "denied", status };
+                    return Done { content, is_error: is_error || status == "denied", status, media: if status == "ok" { media } else { vec![] } };
                 }
                 None => return Done::failed("error", "The user's Agora Desktop app disconnected before the tool finished."),
             }

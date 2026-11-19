@@ -86,6 +86,24 @@ Desktop, second round (same day): what long coding work needs, and a review of t
 - Review findings not fixed yet are listed in the README of AgoraDesktop ("Known weaknesses")
   and below
 
+Desktop, third round (same day):
+
+- Attachments: `attachments` table (migration 0004), `attachments` on a sent message (images up
+  to 5 MB, PDFs, 20 MB per message, only for models with the vision capability), named in the
+  user message's `parts`, `GET /api/attachments/{id}` for the owner; `Block::Document`; a tool
+  result may carry files (`media`), which Claude gets inside the tool result and other models
+  in a user message after it
+- Dev container tools: `run_command` with `background`, `command_output`, `stop_command`
+- Slash commands: `commands` and `fileCommands` in the `desktop` feature's settings (admin page
+  has an editor); a message with `command: "compact"` summarizes instead of answering
+- Web app: Attach button, drop and paste in the composer; files shown on messages
+- Verified with the mock model: a background command read while running, stopped, exit code
+  kept; a PNG and a PDF read by the model and attached by the person arrive as `image_url` and
+  `file` parts; organization and project commands expand; files-off hides project commands;
+  `/compact` and the turn after it; the web pages in Chromium without console errors
+- Not verified: PDFs and tool-returned files against a real Claude or OpenAI model (the mock
+  only shows what is sent)
+
 ### Next
 - Desktop review, server side: a device token is a full account credential (can approve another
   device, create API tokens, use admin routes): restrict what `agd_` tokens may call; group and
