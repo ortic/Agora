@@ -4,6 +4,7 @@ import { Printer } from 'lucide-react'
 import { canAdmin, canAudit, type Me } from '../api'
 import { Access, Audit, DesktopAdmin, Server, SignIn, Sources } from './help/Admin'
 import { Models } from './help/Models'
+import { Overview } from './help/Overview'
 import { serverAddress } from './help/parts'
 import { Api, Chatting, DesktopApp } from './help/User'
 
@@ -22,6 +23,7 @@ export function HelpPage({ me }: { me: Me }) {
     { slug: 'chat', title: 'Chatting', admin: false, body: <Chatting me={me} /> },
     { slug: 'desktop-app', title: 'Agora Desktop', admin: false, body: <DesktopApp me={me} /> },
     { slug: 'api', title: 'Using the API', admin: false, body: <Api /> },
+    { slug: 'overview', title: 'Overview: how it fits together', admin: true, body: <Overview admin={canAdmin(me.user)} /> },
     { slug: 'models', title: 'Ways to run models', admin: true, body: <Models admin={canAdmin(me.user)} /> },
     { slug: 'sign-in', title: 'Accounts and single sign-on', admin: true, body: <SignIn /> },
     { slug: 'access', title: 'Groups, access and budgets', admin: true, body: <Access /> },

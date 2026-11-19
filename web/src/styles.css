@@ -337,6 +337,22 @@ table.data td.num, table.data th.num { text-align: right; font-variant-numeric: 
 .feature-card { margin-bottom: 14px; }
 .feature-card h3 { margin: 0 0 2px; }
 
+/* the chart in the help: how the parts fit together */
+.chart-wrap { overflow-x: auto; margin: 4px 0 12px; }
+.chart { display: block; width: 100%; min-width: 760px; height: auto; font-family: var(--font); }
+.chart-group { fill: var(--bg-soft); stroke: var(--border); stroke-dasharray: 5 4; }
+.chart-group-label { font-size: 12px; font-weight: 600; fill: var(--text-faint); text-transform: uppercase; letter-spacing: 0.04em; }
+.chart-box { fill: var(--bg); stroke: var(--border-strong); stroke-width: 1; }
+.chart-box.core { stroke: var(--accent); stroke-width: 1.6; }
+.chart-box.inside { fill: var(--accent-soft); stroke: var(--accent); }
+.chart-box.outside { fill: var(--warning-soft); stroke: var(--warning); }
+.chart-title { font-size: 13px; font-weight: 600; fill: var(--text); }
+.chart-sub { font-size: 11.5px; fill: var(--text-soft); }
+.chart-label { font-size: 10.5px; fill: var(--text-faint); }
+.chart-line { fill: none; stroke: var(--text-soft); stroke-width: 1.3; }
+.chart-line.dashed { stroke-dasharray: 5 4; }
+.chart-head { fill: var(--text-soft); }
+
 /* the administrators' guide: reads as a page, prints as a document */
 .guide { max-width: 900px; min-width: 0; flex: 1; }
 .help { display: flex; gap: 28px; align-items: flex-start; }
@@ -376,6 +392,8 @@ table.guide-table td { width: 26%; line-height: 1.45; }
   .guide-section { border: 0; padding: 0; margin-bottom: 18pt; break-inside: auto; }
   .guide-section h2 { break-after: avoid; font-size: 14pt; }
   .guide-section h3 { break-after: avoid; }
+  .chart-wrap { overflow: visible; break-inside: avoid; }
+  .chart { min-width: 0; }
   .guide-code, table.guide-table tr, table.guide-options tr, .guide-section li { break-inside: avoid; }
   .help { display: block; }
   .help-title { font-size: 18pt; margin-bottom: 10pt; }

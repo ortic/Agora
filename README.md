@@ -15,6 +15,10 @@ when they roll such a tool out.
 
 <sub>Screenshot with demo data. Dark theme: [docs/screenshots/chat-dark.png](docs/screenshots/chat-dark.png)</sub>
 
+## How it fits together
+
+![People and their computers, the Agora server, and where the models run](docs/agora-overview.png)
+
 ## Features
 
 **Chat**
