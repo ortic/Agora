@@ -63,6 +63,14 @@ pub struct Config {
     #[arg(long, env = "AGORA_MODEL_TIMEOUT_SECS", default_value_t = 300)]
     pub model_timeout_secs: u64,
 
+    /// The Claude Code program, for models that answer through it (`claude -p`).
+    #[arg(long, env = "AGORA_CLAUDE_BIN", default_value = "claude")]
+    pub claude_bin: String,
+
+    /// Where Claude Code runs: an empty folder per chat (its sessions are kept by Claude Code itself).
+    #[arg(long, env = "AGORA_CLAUDE_DIR", default_value = "./data/claude-code")]
+    pub claude_dir: PathBuf,
+
     /// Log format: `text` or `json`.
     #[arg(long, env = "AGORA_LOG_FORMAT", default_value = "text")]
     pub log_format: String,

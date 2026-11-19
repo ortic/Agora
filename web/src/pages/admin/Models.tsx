@@ -8,7 +8,7 @@ import type { Group } from './Groups'
 interface Provider {
   id: string
   name: string
-  kind: 'anthropic' | 'openai'
+  kind: 'anthropic' | 'openai' | 'claude_code'
   baseUrl: string
   apiKeyHint: string | null
   headerNames: string[]
@@ -50,6 +50,7 @@ interface Discovered {
 
 const PRESETS = [
   { label: 'Anthropic (Claude)', kind: 'anthropic', name: 'Anthropic', baseUrl: '' },
+  { label: 'Claude Code on this server (claude -p)', kind: 'claude_code', name: 'Claude Code', baseUrl: '' },
   { label: 'OpenAI', kind: 'openai', name: 'OpenAI', baseUrl: 'https://api.openai.com/v1' },
   { label: 'Ollama on this machine', kind: 'openai', name: 'Ollama (local)', baseUrl: 'http://127.0.0.1:11434/v1' },
   { label: 'vLLM / llama.cpp / LM Studio', kind: 'openai', name: 'Local server', baseUrl: 'http://127.0.0.1:8000/v1' },
@@ -86,7 +87,7 @@ export function ModelsAdmin() {
               <tr key={p.id}>
                 <td>
                   <div style={{ fontWeight: 600 }}>{p.name}</div>
-                  <span className="badge">{p.kind === 'anthropic' ? 'Anthropic' : 'OpenAI-compatible'}</span>
+                  <span className="badge">{p.kind === 'anthropic' ? 'Anthropic' : p.kind === 'claude_code' ? 'Claude Code' : 'OpenAI-compatible'}</span>
                   {!p.enabled && <span className="badge danger" style={{ marginLeft: 4 }}>off</span>}
                 </td>
                 <td className="mono">{p.baseUrl}</td>
@@ -220,11 +221,16 @@ function ProviderDialog({ provider, onClose }: { provider: Provider | null; onCl
       <label className="field">
         <span>Base URL</span>
         <input className="input" value={form.baseUrl} onChange={(e) => setForm({ ...form, baseUrl: e.target.value })} placeholder={form.kind === 'anthropic' ? 'https://api.anthropic.com' : 'https://…/v1'} />
+        {form.kind === 'claude_code' && (
+          <div className="hint">
+            Answers are written by Claude Code running on the server (it must be installed there). It gets Agora's tools only: web search, your knowledge sources and people's desktop tools; none of its own tools for files, commands or the web. Leave the URL empty.
+          </div>
+        )}
         {form.kind === 'openai' && <div className="hint">Up to and including <code>/v1</code>; Agora appends <code>/chat/completions</code> and <code>/models</code>.</div>}
       </label>
       <label className="field">
         <span>API key</span>
-        <input className="input" type="password" value={form.apiKey} onChange={(e) => setForm({ ...form, apiKey: e.target.value })} placeholder={provider?.apiKeyHint ? `unchanged (${provider.apiKeyHint})` : form.kind === 'anthropic' ? 'sk-ant-…' : 'optional for local servers'} autoComplete="off" />
+        <input className="input" type="password" value={form.apiKey} onChange={(e) => setForm({ ...form, apiKey: e.target.value })} placeholder={provider?.apiKeyHint ? `unchanged (${provider.apiKeyHint})` : form.kind === 'anthropic' ? 'sk-ant-…' : form.kind === 'claude_code' ? 'optional: without one, the account claude is signed in with on the server' : 'optional for local servers'} autoComplete="off" />
         <div className="hint">Stored encrypted; never shown again.</div>
       </label>
       <label className="field">

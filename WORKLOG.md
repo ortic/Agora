@@ -110,6 +110,26 @@ Desktop, third round (same day):
   after 2 s, a pattern reached at the right moment, the limit ending a command, stop ending a
   command with child processes
 
+Claude Code as a backend (same day): provider kind `claude_code` (migration 0005),
+`chat/claude_code.rs`.
+
+- An answer runs `claude -p --output-format stream-json --input-format stream-json --tools ""
+  (or `Task`) --strict-mcp-config --mcp-config … --allowedTools mcp__agora --permission-prompts
+  none --setting-sources "" --disable-slash-commands --append-system-prompt …`, in an empty
+  folder per chat; flags checked against Claude Code 2.1.328
+- Its tools are ours: an MCP endpoint per running answer (`POST /api/mcp/{token}`, JSON-RPC
+  over HTTP) calls the same `run_tool` as the tool loop, so device tools, approvals,
+  `tool_events` and audit are unchanged; the per-answer tool limit applies
+- Sessions: `raw.claudeCode.sessionId` on the answer, `--resume … --fork-session` for the next
+  one; fresh session with the conversation as text when there is none (or it is gone)
+- `collect_files` (device tool, also for the other models): terms from the model and from its
+  sentence, files ranked by matches, names and what belongs together, content within a budget
+- Verified with the real CLI (Haiku): one `collect_files`, two edits, a test run in the dev
+  container, 13 s; a follow-up that resumed the session; a follow-up after the session was
+  removed; stopping an answer (no process left)
+- Not verified: with an API key instead of the signed-in account; several answers at once;
+  images returned by tools through MCP; Claude Code's own sub-agents (`Task`)
+
 ### Next
 - Desktop review, server side: a device token is a full account credential (can approve another
   device, create API tokens, use admin routes): restrict what `agd_` tokens may call; group and

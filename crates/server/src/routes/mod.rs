@@ -37,6 +37,8 @@ pub fn api() -> Router<AppState> {
         .route("/messages/{id}/stream", get(chats::follow))
         .route("/messages/{id}/stop", post(chats::stop))
         .route("/attachments/{id}", get(chats::attachment))
+        // Claude Code's way to Agora's tools while it writes an answer (the token is the credential)
+        .route("/mcp/{token}", post(crate::chat::mcp_endpoint))
         // knowledge sources (RAG)
         .route("/connectors", get(connectors::list))
         .route("/connectors/{id}/token", axum::routing::put(connectors::connect).delete(connectors::disconnect))

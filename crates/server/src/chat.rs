@@ -20,6 +20,9 @@ use crate::catalog::ModelRow;
 use crate::llm::{self, Block, Event, Kind, Msg, Role, SearchHit, Stop, ToolCall, ToolDef};
 use crate::settings::Settings;
 
+mod claude_code;
+pub use claude_code::{McpRun, mcp_endpoint};
+
 /// An answer being generated on this replica.
 pub struct Live {
     pub cancel: CancellationToken,
@@ -452,6 +455,9 @@ async fn run(job: Job, hub: Arc<Hub>, cancel: CancellationToken) {
     let http = llm::client(state.config.model_timeout_secs);
     let ws = &job.settings.web_search;
     let kind = job.model.kind();
+    if kind == Kind::ClaudeCode {
+        return claude_code::run(job, hub, cancel).await;
+    }
     let tools_ok = job.web && job.model.cap("tools");
     let native = tools_ok && kind == Kind::Anthropic && ws.claude_native;
     let engine = tools_ok && !native && ws.engine != "none";
@@ -790,10 +796,9 @@ fn reads_only(job: &Job, sources: &[crate::connectors::Linked], name: &str) -> b
     if matches!(name, WEB_SEARCH | FETCH_URL | TASK) || sources.iter().any(|s| s.tool == name) {
         return true;
     }
-    job.desktop
-        .as_ref()
-        .and_then(|d| d.find(name))
-        .is_some_and(|t| t.feature == "code" && matches!(t.remote_name.as_str(), "list_files" | "read_file" | "search_files" | "command_output"))
+    job.desktop.as_ref().and_then(|d| d.find(name)).is_some_and(|t| {
+        t.feature == "code" && matches!(t.remote_name.as_str(), "collect_files" | "list_files" | "read_file" | "search_files" | "command_output")
+    })
 }
 
 /// A sub-agent: the same model with the same tools and an empty context works on

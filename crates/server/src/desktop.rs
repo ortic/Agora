@@ -248,6 +248,17 @@ fn tool(name: &str, description: &str, properties: Value, required: &[&str]) -> 
 pub fn code_tools() -> Vec<ToolDef> {
     vec![
         tool(
+            "collect_files",
+            "Gather what you need to know for a task in ONE call, instead of many list, search and read calls. Give the identifiers, words and file names the task is about; you get the project's layout, its files ranked by how much they have to do with the task, and the content of the most relevant ones (whole when small, the matching regions with line numbers otherwise), plus the tests and counterparts that belong to them. Begin work on a task with this; afterwards read or search only for what it didn't cover.",
+            json!({
+                "query": { "type": "string", "description": "What you are about to do or find out, in a sentence (names in it are looked for too)" },
+                "terms": { "type": "array", "items": { "type": "string" }, "description": "Exact text to look for: function, type and variable names, error messages, config keys, words of the domain. Not patterns. The more specific, the better the ranking" },
+                "paths": { "type": "array", "items": { "type": "string" }, "description": "Files, folders or globs (src/auth/*.rs) that certainly matter: they come first" },
+                "maxChars": { "type": "integer", "description": "How much to return (default 80000, at most 140000)" }
+            }),
+            &[],
+        ),
+        tool(
             "list_files",
             "List files and folders of the project (inside its dev container). Skips .git and dependency folders such as node_modules and target.",
             json!({
@@ -421,7 +432,7 @@ impl Session {
             let ws = self.workspace.clone().unwrap_or_default();
             s.push_str(&format!(
                 " You are working on the user's project \"{}\" through Agora Desktop. The project folder is mounted at /workspace in a dev container (image {}); \
-                 your file and command tools act inside that container, with paths relative to the project root. Look at the code before you change it, keep \
+                 your file and command tools act inside that container, with paths relative to the project root. Look at the code before you change it (collect_files gathers what a task is about in one call), keep \
                  changes small and in the project's style, and check your work by building or running the tests when the project has them. \
                  The user sees every tool call and may decline one: then don't retry it, ask what they'd prefer.",
                 clip(&ws.name, 200),
@@ -686,8 +697,10 @@ pub async fn call(
                         _ => "ok",
                     };
                     let mut content = content.replace('\0', "");
-                    if content.chars().count() > MAX_RESULT_CHARS {
-                        content = content.chars().take(MAX_RESULT_CHARS).collect::<String>() + "\n\n[The output was longer; the rest was cut off.]";
+                    // (a collection of files is as long as it was asked to be)
+                    let most = if tool.remote_name == "collect_files" { 150_000 } else { MAX_RESULT_CHARS };
+                    if content.chars().count() > most {
+                        content = content.chars().take(most).collect::<String>() + "\n\n[The output was longer; the rest was cut off.]";
                     }
                     if status == "denied" && content.trim().is_empty() {
                         content = "The user declined this action.".into();

@@ -333,14 +333,15 @@ pub async fn create_provider(
     client: Client,
     Json(req): Json<ProviderBody>,
 ) -> ApiResult<Json<Value>> {
-    let kind = req.kind.as_deref().and_then(crate::llm::Kind::parse).ok_or_else(|| ApiError::bad("kind must be anthropic or openai"))?;
+    let kind = req.kind.as_deref().and_then(crate::llm::Kind::parse).ok_or_else(|| ApiError::bad("kind must be anthropic, openai or claude_code"))?;
     let name = req.name.as_deref().map(str::trim).filter(|n| !n.is_empty()).unwrap_or(match kind {
         crate::llm::Kind::Anthropic => "Anthropic",
         crate::llm::Kind::Openai => "OpenAI-compatible",
+        crate::llm::Kind::ClaudeCode => "Claude Code",
     });
     let base = match (kind, req.base_url.as_deref().filter(|u| !u.trim().is_empty())) {
         (_, Some(u)) => check_url(u)?,
-        (crate::llm::Kind::Anthropic, None) => crate::llm::anthropic::DEFAULT_URL.to_string(),
+        (crate::llm::Kind::Anthropic | crate::llm::Kind::ClaudeCode, None) => crate::llm::anthropic::DEFAULT_URL.to_string(),
         (crate::llm::Kind::Openai, None) => return Err(ApiError::bad("an OpenAI-compatible provider needs a base URL (e.g. https://api.openai.com/v1)")),
     };
     let key = req.api_key.as_deref().map(str::trim).filter(|k| !k.is_empty());

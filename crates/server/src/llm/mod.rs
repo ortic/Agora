@@ -31,6 +31,9 @@ pub struct Endpoint {
 pub enum Kind {
     Anthropic,
     Openai,
+    /// Claude Code on the server (`claude -p`): answers in chats only
+    #[serde(rename = "claude_code")]
+    ClaudeCode,
 }
 
 impl Kind {
@@ -38,6 +41,7 @@ impl Kind {
         match s {
             "anthropic" => Some(Kind::Anthropic),
             "openai" => Some(Kind::Openai),
+            "claude_code" => Some(Kind::ClaudeCode),
             _ => None,
         }
     }
@@ -259,6 +263,7 @@ pub async fn stream(
     match ep.kind {
         Kind::Anthropic => anthropic::stream(http, ep, req, cancel, on_event).await,
         Kind::Openai => openai::stream(http, ep, req, cancel, on_event).await,
+        Kind::ClaudeCode => Err(LlmError::Http("this model answers through Claude Code, in chats only".into())),
     }
 }
 
@@ -276,6 +281,16 @@ pub async fn list_models(http: &reqwest::Client, ep: &Endpoint) -> Result<Vec<Di
     match ep.kind {
         Kind::Anthropic => anthropic::list_models(http, ep).await,
         Kind::Openai => openai::list_models(http, ep).await,
+        // the names `claude --model` takes; others can be added by hand
+        Kind::ClaudeCode => Ok([
+            ("sonnet", "Claude Sonnet (Claude Code)"),
+            ("opus", "Claude Opus (Claude Code)"),
+            ("haiku", "Claude Haiku (Claude Code)"),
+            ("fable", "Claude Fable (Claude Code)"),
+        ]
+        .into_iter()
+        .map(|(model, name)| Discovered { model: model.into(), display_name: name.into(), context_window: None, max_output_tokens: None })
+        .collect()),
     }
 }
 

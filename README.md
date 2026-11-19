@@ -28,6 +28,7 @@ when they roll such a tool out.
 
 **Models**
 - **Claude** through the Anthropic Messages API: adaptive thinking, effort levels, prompt caching, server-side fallback on declined requests, Claude's own web search
+- **Claude Code** (`claude -p` on the server) as a model, with Agora's tools only
 - **Any OpenAI-compatible API**: OpenAI, Azure-style gateways, LiteLLM, OpenRouter, and models in your own network: **Ollama, vLLM, llama.cpp, LM Studio, LocalAI**
 - Model discovery (`/models`), list prices for Claude filled in automatically, your own prices for the rest
 - Access per model: everyone, or selected groups; per-model instructions, default effort, temperature
@@ -79,6 +80,28 @@ open http://localhost:8790      # the first visit creates the owner account
 Then: **Administration → Models → Connect a provider**, add models, and start chatting.
 Keep `AGORA_SECRET_KEY` safe and unchanged: it encrypts provider keys and connector tokens.
 
+## Claude Code as a model
+
+A provider of the kind **Claude Code** makes the server answer with `claude -p`: Claude Code's
+own agent loop (its context handling, planning, sub-agents) writes the answer, and Agora relays
+it. Claude Code must be installed on the server (`AGORA_CLAUDE_BIN`, default `claude`).
+
+- It gets **none of its built-in tools** for files, commands or the web, so nothing runs on
+  the server. Its tools are Agora's, offered over MCP for the length of an answer: web search
+  and page fetches, your knowledge sources, and the tools on the person's computer through
+  Agora Desktop. Grants, confirmations and the record of every call are the same as with any
+  other model. Its sub-agents are kept when the Desktop settings allow sub-agents.
+- The server account's own Claude Code setup (settings, hooks, commands, MCP servers) isn't used.
+- **Who pays:** with an API key on the provider, that Anthropic account; without one, the
+  account `claude` is signed in with on the server. Check Anthropic's terms before serving
+  several people from one personal subscription.
+- A chat continues the Claude Code session of its previous answer; sessions are kept by Claude
+  Code in the server account's home (per chat, under `AGORA_CLAUDE_DIR`). A session that is gone
+  is replaced by a new one that is given the conversation as text.
+- Add the models by name as `claude --model` takes them (`sonnet`, `opus`, `haiku`, or a full
+  model name). Set their prices if you want Agora's own cost figures; without prices the cost
+  Claude Code reports is shown.
+
 ## Running a model on your own hardware
 
 Any server with an OpenAI-compatible API works. With [Ollama](https://ollama.com):
@@ -128,6 +151,7 @@ sources) is set in the admin UI. The server itself takes flags or environment va
 | `AGORA_SECURE_COOKIES` | `false` | `true` behind HTTPS |
 | `AGORA_TRUST_PROXY` | `false` | take client addresses from `X-Forwarded-For` |
 | `AGORA_SESSION_DAYS` / `AGORA_SESSION_IDLE_MINUTES` | `14` / `0` | session lifetime, idle timeout |
+| `AGORA_CLAUDE_BIN` / `AGORA_CLAUDE_DIR` | `claude` / `./data/claude-code` | Claude Code, for models that answer through it, and where it runs |
 | `AGORA_AUTH_PROVIDERS` / `_FILE` | — | single sign-on providers (JSON, below) |
 | `AGORA_DISABLE_PASSWORD_LOGIN` | `false` | SSO only (LDAP still works) |
 | `AGORA_FETCH_ALLOW_PRIVATE` | `false` | let models open private network addresses |

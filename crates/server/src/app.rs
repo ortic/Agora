@@ -22,6 +22,8 @@ pub struct Inner {
     pub live: DashMap<Uuid, crate::chat::Live>,
     /// desktop apps connected to this replica, by device id
     pub devices: DashMap<Uuid, Arc<crate::desktop::Device>>,
+    /// answers Claude Code is writing on this replica, by the token of their MCP endpoint
+    pub mcp_runs: DashMap<String, Arc<crate::chat::McpRun>>,
     /// set on SIGTERM
     pub shutting_down: std::sync::atomic::AtomicBool,
 }
@@ -42,7 +44,16 @@ impl AppState {
         let providers = crate::sso::load(&config)?;
         let secrets = crate::crypto::Secrets::new(&config.secret_key);
         Ok(AppState {
-            inner: Arc::new(Inner { db, config, providers, secrets, live: DashMap::new(), devices: DashMap::new(), shutting_down: Default::default() }),
+            inner: Arc::new(Inner {
+                db,
+                config,
+                providers,
+                secrets,
+                live: DashMap::new(),
+                devices: DashMap::new(),
+                mcp_runs: DashMap::new(),
+                shutting_down: Default::default(),
+            }),
         })
     }
 }
