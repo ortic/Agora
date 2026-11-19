@@ -1,8 +1,8 @@
 import type { ReactNode } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
-import { Printer } from 'lucide-react'
 import { api } from '../../api'
+import { Code } from './parts'
 
 interface Provider {
   id: string
@@ -14,14 +14,6 @@ interface Provider {
 }
 
 const local = (url: string) => /\/\/(127\.|localhost|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|host\.docker\.internal|\[::1\])/.test(url)
-
-function Code({ children }: { children: string }) {
-  return (
-    <div className="code-block guide-code">
-      <pre>{children}</pre>
-    </div>
-  )
-}
 
 function Way({ id, title, state, children }: { id: string; title: string; state: ReactNode; children: ReactNode }) {
   return (
@@ -35,29 +27,20 @@ function Way({ id, title, state, children }: { id: string; title: string; state:
   )
 }
 
-/** How to give Agora its models: the built-in guide for administrators. Prints as a document. */
-export function Guide() {
-  const providers = useQuery({ queryKey: ['admin-providers'], queryFn: () => api.get<Provider[]>('/admin/providers') })
+/** The ways to give Agora its models. `admin`: may read the providers (for the "in use" marks). */
+export function Models({ admin }: { admin: boolean }) {
+  const providers = useQuery({ queryKey: ['admin-providers'], queryFn: () => api.get<Provider[]>('/admin/providers'), enabled: admin })
   const list = providers.data ?? []
   const state = (match: (p: Provider) => boolean) => {
+    if (!admin) return null
     const mine = list.filter((p) => match(p) && p.enabled)
     const models = mine.reduce((n, p) => n + p.models, 0)
     if (mine.length === 0) return <span className="badge no-print">not set up</span>
     return <span className="badge accent no-print">{models === 0 ? 'connected, no models yet' : `in use: ${models} model${models === 1 ? '' : 's'}`}</span>
   }
   return (
-    <div className="guide">
-      <div className="row no-print" style={{ marginBottom: 12 }}>
-        <p className="muted grow" style={{ margin: 0 }}>
-          Agora doesn't run models itself. It sends each conversation to a model somewhere else, and you choose where. This guide explains the ways to do that.
-        </p>
-        <button className="btn" onClick={() => window.print()} title="Your browser's print dialog can save this guide as a PDF">
-          <Printer size={15} /> Print or save as PDF
-        </button>
-      </div>
-      <h1 className="print-only">Agora: ways to run models</h1>
-      <p className="print-only muted">Agora doesn't run models itself. It sends each conversation to a model somewhere else, and you choose where. This guide explains the ways to do that.</p>
-
+    <>
+      <p className="muted">Agora doesn't run models itself. It sends each conversation to a model somewhere else, and you choose where.</p>
       <section className="card guide-section">
         <h2 style={{ marginTop: 0 }}>The three ways at a glance</h2>
         <div className="table-wrap">
@@ -216,6 +199,6 @@ export function Guide() {
           Start a new chat, pick the model and send a short message. If something is wrong, the reason is shown under the answer (a wrong key, an unreachable address, a model name the provider doesn't know). Every call, with its tokens, cost and errors, is listed under <Link to="/admin/usage">Usage</Link>.
         </p>
       </section>
-    </div>
+    </>
   )
 }

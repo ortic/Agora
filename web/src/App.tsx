@@ -7,6 +7,7 @@ import { ChatPage } from './pages/Chat'
 import { SettingsPage } from './pages/Settings'
 import { AdminPage } from './pages/Admin'
 import { DesktopLink } from './pages/DesktopLink'
+import { HelpPage } from './pages/Help'
 
 export function useMe() {
   return useQuery({ queryKey: ['me'], queryFn: () => api.get<Me>('/me'), staleTime: 60_000 })
@@ -30,6 +31,7 @@ export function App() {
         <Route path="/c/:id" element={<ChatPage me={me.data!} />} />
         <Route path="/desktop/link" element={<DesktopLink />} />
         <Route path="/settings/*" element={<SettingsPage me={me.data!} />} />
+        <Route path="/help/*" element={<HelpPage me={me.data!} />} />
         <Route path="/admin/*" element={canAudit(user) ? <AdminPage me={me.data!} /> : <Navigate to="/" replace />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

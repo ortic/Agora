@@ -1,7 +1,7 @@
 import { useMemo, useState, type ReactNode } from 'react'
 import { Link, NavLink, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { LogOut, Menu, MessageSquarePlus, Pencil, Pin, PinOff, Search, Settings, Shield, Trash2 } from 'lucide-react'
+import { CircleHelp, LogOut, Menu, MessageSquarePlus, Pencil, Pin, PinOff, Search, Settings, Shield, Trash2 } from 'lucide-react'
 import { api, canAudit, type ChatSummary, type Me } from '../api'
 import { Avatar } from '../ui'
 
@@ -81,6 +81,9 @@ export function Layout({ me, children }: { me: Me; children: ReactNode }) {
           )}
           <NavLink to="/settings" className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}>
             <Settings size={16} /> Settings & usage
+          </NavLink>
+          <NavLink to="/help" className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}>
+            <CircleHelp size={16} /> Help
           </NavLink>
           <div className="user-chip">
             <Avatar name={user.name} />

@@ -11,7 +11,6 @@ import { AuditAdmin } from './admin/Audit'
 import { WebAdmin } from './admin/Web'
 import { DesktopAdmin } from './admin/Desktop'
 import { ChatInspector } from './admin/ChatInspector'
-import { Guide } from './admin/Guide'
 
 export function AdminPage({ me }: { me: Me }) {
   const admin = canAdmin(me.user)
@@ -25,7 +24,7 @@ export function AdminPage({ me }: { me: Me }) {
     { to: '/admin/web', label: 'Web activity', icon: Globe, show: true },
     { to: '/admin/desktop', label: 'Desktop', icon: MonitorSmartphone, show: true },
     { to: '/admin/settings', label: 'Settings', icon: Settings2, show: admin },
-    { to: '/admin/guide', label: 'Guide', icon: BookOpen, show: admin },
+    { to: '/help/models', label: 'Help', icon: BookOpen, show: true },
   ]
   return (
     <div className="page">
@@ -56,7 +55,6 @@ export function AdminPage({ me }: { me: Me }) {
           <Route path="desktop" element={<DesktopAdmin admin={admin} />} />
           <Route path="chats/:id" element={<ChatInspector />} />
           {admin && <Route path="settings" element={<SettingsAdmin />} />}
-          {admin && <Route path="guide" element={<Guide />} />}
         </Routes>
       </div>
     </div>

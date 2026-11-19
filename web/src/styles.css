@@ -338,7 +338,24 @@ table.data td.num, table.data th.num { text-align: right; font-variant-numeric: 
 .feature-card h3 { margin: 0 0 2px; }
 
 /* the administrators' guide: reads as a page, prints as a document */
-.guide { max-width: 900px; }
+.guide { max-width: 900px; min-width: 0; flex: 1; }
+.help { display: flex; gap: 28px; align-items: flex-start; }
+.help-nav { width: 220px; flex: none; position: sticky; top: 12px; display: flex; flex-direction: column; gap: 1px; }
+.help-nav-head { font-size: 12px; font-weight: 600; color: var(--text-faint); text-transform: uppercase; letter-spacing: 0.04em; margin: 12px 8px 4px; }
+.help-nav-head:first-child { margin-top: 0; }
+.help-link { padding: 6px 8px; border-radius: 6px; color: var(--text-soft); text-decoration: none; font-size: 14px; }
+.help-link:hover { background: var(--bg-hover); }
+.help-link.active { background: var(--bg-hover); color: var(--text); font-weight: 600; }
+.help-title { font-size: 20px; margin: 0 0 12px; }
+.help-chapter + .help-chapter { margin-top: 36px; }
+table.guide-options td:first-child { width: 34%; }
+table.guide-options td { line-height: 1.5; }
+table.guide-options code { white-space: nowrap; }
+@media (max-width: 800px) {
+  .help { flex-direction: column; }
+  .help-nav { position: static; width: 100%; flex-direction: row; flex-wrap: wrap; }
+  .help-nav-head { width: 100%; }
+}
 .guide-section { margin-bottom: 16px; scroll-margin-top: 12px; }
 .guide-section p, .guide-section li { line-height: 1.6; }
 .guide-section ol, .guide-section ul { padding-left: 22px; margin: 8px 0; }
@@ -359,7 +376,12 @@ table.guide-table td { width: 26%; line-height: 1.45; }
   .guide-section { border: 0; padding: 0; margin-bottom: 18pt; break-inside: auto; }
   .guide-section h2 { break-after: avoid; font-size: 14pt; }
   .guide-section h3 { break-after: avoid; }
-  .guide-code, table.guide-table tr, .guide-section li { break-inside: avoid; }
+  .guide-code, table.guide-table tr, table.guide-options tr, .guide-section li { break-inside: avoid; }
+  .help { display: block; }
+  .help-title { font-size: 18pt; margin-bottom: 10pt; }
+  .help-chapter { break-before: page; }
+  .help-chapter:first-of-type { break-before: auto; }
+  .help-cover { font-size: 24pt; margin: 0 0 6pt; }
   .guide a { color: inherit; text-decoration: none; }
   @page { margin: 18mm 16mm; }
 }
