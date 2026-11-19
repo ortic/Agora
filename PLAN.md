@@ -152,6 +152,10 @@ browser ── /api (JSON, SSE) ──► agora (axum)
 - [x] P1 Tool bridge: the tool loop stays on the server; calls go to the person's app over a WebSocket, with progress, cancel and timeout; tools only for messages sent from the app
 - [x] P1 `tool_events` log + audit (`desktop.tool`, `device.*`, `desktop.*_updated`); admin view; tool calls shown in chats (web and desktop)
 - [x] P1 Policy pushed to connected apps when an admin changes it; revoking the app disconnects them
+- [x] P1 Sub-agents (`task` tool: same model and tools, empty context, own tool budget; admin switch), read-only calls of a turn in parallel
+- [x] P1 Summarizing a conversation at 70% of the model's context window (before an answer and between tool rounds); the summary is stored with the answer (`raw.compact`) and replaces what came before in later turns
+- [x] P1 Project instructions (`AGENTS.md` / `CLAUDE.md`), the person's own, and project notes (`.agora/memory.md`) in the system prompt, sent by the app
+- [x] P1 Features withdrawn during an answer stop being run (policy checked per call); call ids of our own on the wire
 - [ ] P1 Tool results of earlier turns replayed to non-Claude models (today: only the answer's text)
 - [ ] P1 Several replicas: a device is connected to one replica; calls must be routed to it
 - [ ] P2 Per-connector secrets held server-side and handed to the app encrypted per device

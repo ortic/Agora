@@ -158,11 +158,15 @@ export type Part =
   | { type: 'fetch'; id: string; url: string; title?: string; status: 'running' | 'done' | 'error'; error?: string | null }
   | { type: 'knowledge'; id: string; source: string; query: string; status: 'running' | 'done' | 'error'; results?: SearchHit[]; error?: string | null }
   | ToolPart
+  | { type: 'agent'; id: string; description: string; prompt: string; status: 'running' | 'done' | 'error' | 'stopped'; steps: number; output?: string; error?: string | null }
+  | { type: 'compaction'; id: string; status: 'running' | 'done' | 'error'; error?: string | null }
 
 /** A tool a model ran on the person's computer through Agora Desktop. */
 export interface ToolPart {
   type: 'tool'
   id: string
+  /** the sub-agent that made the call */
+  agent?: string | null
   feature: 'code' | 'browser' | 'connector'
   connector: string | null
   tool: string

@@ -28,6 +28,11 @@ const MAX_RESULT_CHARS: usize = 60_000;
 /// How much of a tool's output the chat shows.
 const SHOWN_OUTPUT_CHARS: usize = 4_000;
 
+/// Where a project keeps its notes for models, relative to its root.
+pub const MEMORY_FILE: &str = ".agora/memory.md";
+const MAX_INSTRUCTION_CHARS: usize = 24_000;
+const MAX_MEMORY_CHARS: usize = 8_000;
+
 // ---- policy --------------------------------------------------------------------------------
 
 /// Settings of the `desktop` feature itself.
@@ -38,11 +43,15 @@ pub struct GeneralConfig {
     pub max_tool_calls: u32,
     /// Seconds a tool may take on the person's computer.
     pub tool_timeout_secs: u64,
+    /// May a model hand parts of the work to sub-agents (the `task` tool)?
+    pub subagents: bool,
+    /// Tool calls one sub-agent may make.
+    pub max_subagent_tool_calls: u32,
 }
 
 impl Default for GeneralConfig {
     fn default() -> Self {
-        GeneralConfig { max_tool_calls: 60, tool_timeout_secs: 600 }
+        GeneralConfig { max_tool_calls: 60, tool_timeout_secs: 600, subagents: true, max_subagent_tool_calls: 30 }
     }
 }
 
@@ -343,6 +352,11 @@ pub struct Workspace {
     pub image: String,
     /// what the app found worth telling the model (toolchain files, git branch, …)
     pub summary: Option<String>,
+    /// the project's own instructions for models (AGENTS.md or CLAUDE.md at its root) and the
+    /// person's (their app's `instructions.md`)
+    pub instructions: Option<String>,
+    /// the project's notes from earlier sessions (`.agora/memory.md`)
+    pub memory: Option<String>,
 }
 
 /// What the app asks for with a message: which of its tools this answer may use.
@@ -383,10 +397,26 @@ impl Session {
                  your file and command tools act inside that container, with paths relative to the project root. Look at the code before you change it, keep \
                  changes small and in the project's style, and check your work by building or running the tests when the project has them. \
                  The user sees every tool call and may decline one: then don't retry it, ask what they'd prefer.",
-                ws.name, ws.image
+                clip(&ws.name, 200),
+                clip(&ws.image, 300)
             ));
             if let Some(sum) = ws.summary.as_deref().filter(|x| !x.trim().is_empty()) {
-                s.push_str(&format!(" About the project: {}", sum.trim().chars().take(2000).collect::<String>()));
+                s.push_str(&format!(" About the project: {}", clip(sum.trim(), 2000)));
+            }
+            s.push_str(&format!(
+                "\n\nNotes that last: the file {MEMORY_FILE} in the project holds what earlier sessions noted about it. When you learn something that will \
+                 matter in later sessions (how to build and test, conventions, decisions the user made, pitfalls), add it there with your file tools, \
+                 in a few lines; correct what turned out wrong. Don't note what the code or git history already says."
+            ));
+            if let Some(m) = ws.memory.as_deref().filter(|x| !x.trim().is_empty()) {
+                s.push_str(&format!("\n\n<project-notes file=\"{MEMORY_FILE}\">\n{}\n</project-notes>", clip(m.trim(), MAX_MEMORY_CHARS)));
+            }
+            if let Some(i) = ws.instructions.as_deref().filter(|x| !x.trim().is_empty()) {
+                s.push_str(&format!(
+                    "\n\nInstructions the project and the user keep for you (follow them unless the user says otherwise in the chat):\n\
+                     <project-instructions>\n{}\n</project-instructions>",
+                    clip(i.trim(), MAX_INSTRUCTION_CHARS)
+                ));
             }
         }
         if self.has("browser") {
@@ -408,6 +438,10 @@ impl Session {
         }
         s
     }
+}
+
+fn clip(s: &str, max: usize) -> String {
+    if s.chars().count() <= max { s.to_string() } else { s.chars().take(max).collect::<String>() + " […]" }
 }
 
 /// Name a model calls a connector's tool by: `<connector>__<tool>`, at most 64 characters of
@@ -574,6 +608,24 @@ pub async fn call(
             "The user's Agora Desktop app isn't connected any more. Tell them; the tools on their computer are unavailable until it reconnects.",
         );
     };
+    // what an administrator withdrew since the answer began isn't run any more
+    let granted = match policy(state, dev.user_id).await {
+        Ok(now) => {
+            now.desktop
+                && match tool.feature {
+                    "code" => now.code.is_some(),
+                    "browser" => now.browser.is_some(),
+                    _ => tool
+                        .connector
+                        .as_ref()
+                        .is_some_and(|(id, _)| now.connectors.iter().any(|c| c.id == *id && (c.tools.is_empty() || c.tools.contains(&tool.remote_name)))),
+                }
+        }
+        Err(_) => false,
+    };
+    if !granted {
+        return Done::failed("blocked", "Not allowed: the organization doesn't grant this to the user (any more).");
+    }
     let (tx, mut rx) = mpsc::unbounded_channel();
     dev.pending.lock().expect("pending calls").insert(call_id.to_string(), tx);
     let msg = json!({
@@ -596,14 +648,14 @@ pub async fn call(
             _ = cancel.cancelled() => return forget("error", "Stopped by the user."),
             _ = &mut deadline => return forget("timeout", "The tool took too long and was stopped."),
             r = rx.recv() => match r {
-                Some(Reply::Progress(text)) => progress(&text),
+                Some(Reply::Progress(text)) => progress(&text.replace('\0', "")),
                 Some(Reply::Result { content, is_error, status }) => {
                     let status = match status.as_str() {
                         "denied" => "denied",
                         _ if is_error => "error",
                         _ => "ok",
                     };
-                    let mut content = content;
+                    let mut content = content.replace('\0', "");
                     if content.chars().count() > MAX_RESULT_CHARS {
                         content = content.chars().take(MAX_RESULT_CHARS).collect::<String>() + "\n\n[The output was longer; the rest was cut off.]";
                     }
@@ -615,6 +667,17 @@ pub async fn call(
                 None => return Done::failed("error", "The user's Agora Desktop app disconnected before the tool finished."),
             }
         }
+    }
+}
+
+/// A JSON value without NUL characters in its strings (Postgres doesn't store them, and a call
+/// must never go unrecorded).
+pub fn scrub(v: &Value) -> Value {
+    match v {
+        Value::String(s) if s.contains('\0') => Value::String(s.replace('\0', "")),
+        Value::Array(a) => Value::Array(a.iter().map(scrub).collect()),
+        Value::Object(o) => Value::Object(o.iter().map(|(k, v)| (k.replace('\0', ""), scrub(v))).collect()),
+        other => other.clone(),
     }
 }
 

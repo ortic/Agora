@@ -174,6 +174,8 @@ function FeatureCard({ k, title, about, feature, groups }: { k: FeatureKey; titl
     groupIds: new Set(feature.groupIds),
     maxToolCalls: text(c.maxToolCalls, '60'),
     toolTimeoutSecs: text(c.toolTimeoutSecs, '600'),
+    subagents: c.subagents !== false,
+    maxSubagentToolCalls: text(c.maxSubagentToolCalls, '30'),
     images: list(c.images),
     defaultImage: text(c.defaultImage),
     network: c.network !== false,
@@ -195,7 +197,12 @@ function FeatureCard({ k, title, about, feature, groups }: { k: FeatureKey; titl
     mutationFn: () => {
       const config =
         k === 'desktop'
-          ? { maxToolCalls: int(f.maxToolCalls, 60), toolTimeoutSecs: int(f.toolTimeoutSecs, 600) }
+          ? {
+              maxToolCalls: int(f.maxToolCalls, 60),
+              toolTimeoutSecs: int(f.toolTimeoutSecs, 600),
+              subagents: f.subagents,
+              maxSubagentToolCalls: int(f.maxSubagentToolCalls, 30),
+            }
           : k === 'code'
             ? { images: lines(f.images), defaultImage: f.defaultImage.trim(), network: f.network, approval: f.approval, commandTimeoutSecs: int(f.commandTimeoutSecs, 300) }
             : { allowedDomains: lines(f.allowedDomains), blockedDomains: lines(f.blockedDomains), approval: f.approval }
@@ -242,6 +249,21 @@ function FeatureCard({ k, title, about, feature, groups }: { k: FeatureKey; titl
             <input className="input" inputMode="numeric" value={f.toolTimeoutSecs} onChange={(e) => set({ toolTimeoutSecs: e.target.value })} />
             <div className="hint">Includes the time the person takes to confirm.</div>
           </label>
+          <label className="field">
+            <span>Sub-agents</span>
+            <select className="input" value={f.subagents ? 'on' : 'off'} onChange={(e) => set({ subagents: e.target.value === 'on' })}>
+              <option value="on">Models may hand parts of the work to sub-agents</option>
+              <option value="off">Off</option>
+            </select>
+            <div className="hint">A sub-agent is the same model with the same tools and an empty context. Its model calls are billed like any other.</div>
+          </label>
+          {f.subagents && (
+            <label className="field">
+              <span>Tool calls per sub-agent</span>
+              <input className="input" inputMode="numeric" value={f.maxSubagentToolCalls} onChange={(e) => set({ maxSubagentToolCalls: e.target.value })} />
+              <div className="hint">On top of the answer's own limit.</div>
+            </label>
+          )}
         </div>
       )}
       {f.access !== 'nobody' && k === 'code' && (

@@ -69,7 +69,28 @@ with Agora as its backend.
   chain verifies. Web pages checked in Chromium (Playwright in docker), no console errors
 - Not verified: Windows and macOS (CI only), several replicas (a device connects to one)
 
+Desktop, second round (same day): what long coding work needs, and a review of the first round.
+
+- Tool loop (`chat.rs`): `task` tool runs a sub-agent (same model and tools without `task`, empty
+  context, budget `maxSubagentToolCalls`, default 30; its calls show under it in the chat and are
+  recorded like any other); consecutive read-only calls of a turn run concurrently; a conversation
+  is summarized at 70% of the context window (Claude models without one on record: 200k), before
+  an answer or between tool rounds, stored as `raw.compact` and used by `history()` afterwards
+- System prompt gets the project's instructions and notes the app sends (clipped)
+- From the review: device calls carry an id of our own (model ids repeat between answers and
+  sub-agents), the person's policy is checked again before every call, NUL characters are removed
+  from tool input and output (Postgres refused them, which lost the answer or the record), the
+  progress buffer is bounded
+- Verified with the mock model: three reads in one turn, two sub-agents at once writing files,
+  summary during an answer and before one, the follow-up turn starting from the summary
+- Review findings not fixed yet are listed in the README of AgoraDesktop ("Known weaknesses")
+  and below
+
 ### Next
+- Desktop review, server side: a device token is a full account credential (can approve another
+  device, create API tokens, use admin routes): restrict what `agd_` tokens may call; group and
+  user changes in `routes/admin.rs` don't push policies; `tool_events.input` ignores the
+  `audit_content` setting; `login_start` rate limit is per IP behind a proxy
 - Integration tests in `crates/server/tests` (mock provider, fresh database per test)
 - TaskCraft connector once its API is known; MCP servers as tools on the server side
 - Desktop: packages and installers, replay of tool results for non-Claude models, calls routed between replicas

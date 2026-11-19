@@ -4,6 +4,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   ArrowUp,
   BookOpen,
+  Bot,
   Brain,
   ChevronDown,
   ChevronLeft,
@@ -14,6 +15,7 @@ import {
   Plug,
   RefreshCw,
   Search,
+  Shrink,
   SlidersHorizontal,
   Square,
   Terminal,
@@ -633,7 +635,7 @@ export function ToolPartView({ p }: { p: ToolPart }) {
   const builtin = p.feature !== 'connector'
   const failed = p.status !== 'running' && p.status !== 'done'
   return (
-    <details className="tool">
+    <details className="tool" style={p.agent ? { marginLeft: 18 } : undefined}>
       <summary>
         {p.status === 'running' ? <span className="spinner" /> : <Icon size={14} />}
         <span>{s.verb}</span>
@@ -663,6 +665,37 @@ export function ToolPartView({ p }: { p: ToolPart }) {
 
 function PartView({ p, live }: { p: Part; live: boolean }) {
   if (p.type === 'tool') return <ToolPartView p={p} />
+  if (p.type === 'agent') {
+    return (
+      <details className="tool">
+        <summary>
+          {p.status === 'running' ? <span className="spinner" /> : <Bot size={14} />}
+          <span>Sub-agent</span>
+          <span className="q" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>{p.description}</span>
+          <span className="grow" />
+          {p.steps > 0 && <span className="faint">{plural(p.steps, 'step')}</span>}
+          {(p.status === 'error' || p.status === 'stopped') && <span className="error-text">{p.status === 'stopped' ? 'Stopped' : 'Failed'}</span>}
+        </summary>
+        <div className="tool-body">
+          <pre>{p.prompt}</pre>
+          {p.error && <div className="error-text" style={{ fontSize: 13, whiteSpace: 'pre-wrap' }}>{p.error}</div>}
+          {p.output && <pre className="out">{p.output}</pre>}
+        </div>
+      </details>
+    )
+  }
+  if (p.type === 'compaction') {
+    return (
+      <div className="faint" style={{ fontSize: 13, display: 'flex', gap: 6, alignItems: 'center' }} title={p.error ?? undefined}>
+        {p.status === 'running' ? <span className="spinner" /> : <Shrink size={14} />}
+        {p.status === 'running'
+          ? 'Summarizing the conversation to make room…'
+          : p.status === 'done'
+            ? 'The earlier conversation was summarized to make room.'
+            : 'The conversation could not be summarized.'}
+      </div>
+    )
+  }
   if (p.type === 'reasoning') {
     return (
       <details className="reasoning" open={live}>

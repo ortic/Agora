@@ -167,6 +167,149 @@ pub fn start(job: Job) -> (Arc<Hub>, Value, u64, broadcast::Receiver<Arc<(u64, V
 
 const WEB_SEARCH: &str = "web_search";
 const FETCH_URL: &str = "fetch_url";
+/// Hands a piece of the work to a sub-agent (answers that use the desktop's tools).
+const TASK: &str = "task";
+const LIMIT_REACHED: &str = "Tool call limit reached for this answer. Answer with the information you already have.";
+
+const AGENT_NOTE: &str = "You are a sub-agent: another instance of the assistant gave you the task below and sees nothing of what you do except your \
+    final message. Do the task with your tools, then report: what you found or changed, with file paths and the facts that matter, and what remains \
+    open. Be brief and exact; don't ask questions, decide what is reasonable and say what you assumed.";
+
+const COMPACT_PROMPT: &str = "The conversation is about to exceed what fits in your context. Write the summary that will replace everything above \
+    (this request included) so that the work can go on without it. Don't call tools. Cover, in this order:\n\
+    1. What the user asked for, and their latest request word for word.\n\
+    2. What was done: files read and changed (with paths), commands run and what they showed, decisions and why.\n\
+    3. Facts learned that are needed again (names, signatures, error messages, values) — exact, not paraphrased.\n\
+    4. What the user corrected or declined.\n\
+    5. Where the work stands and the next steps.\n\
+    Write only the summary.";
+
+fn task_tool() -> ToolDef {
+    ToolDef {
+        name: TASK.into(),
+        description: "Hand a self-contained piece of work to a sub-agent that starts with an empty context: a broad search through the code, a \
+            question to investigate, an independent change. It has your tools (except this one), doesn't see this conversation, and returns only its \
+            final report, so your own context stays small. Say in the prompt everything it needs to know and what to report. Several task calls in \
+            one turn run at the same time; don't let two of them change the same files."
+            .into(),
+        schema: json!({
+            "type": "object",
+            "properties": {
+                "description": { "type": "string", "description": "Three to six words naming the task" },
+                "prompt": { "type": "string", "description": "The task, with everything the sub-agent needs to know" }
+            },
+            "required": ["description", "prompt"],
+            "additionalProperties": false
+        }),
+    }
+}
+
+/// What the tool calls of one answer share.
+struct Tooling<'a> {
+    http: &'a reqwest::Client,
+    ep: &'a llm::Endpoint,
+    /// what a sub-agent's model calls start from (the answer's request without `task`)
+    agent: &'a llm::Request,
+    agent_calls: usize,
+    search_key: Option<&'a str>,
+    sources: &'a [crate::connectors::Linked],
+    cancel: &'a CancellationToken,
+    /// usage and cost of model calls made inside tools (sub-agents, summaries)
+    spent: &'a Mutex<(llm::Usage, f64)>,
+}
+
+/// One model call that isn't shown as it streams; its usage is recorded. `Err` says why it failed.
+async fn quiet_call(job: &Job, t: &Tooling<'_>, req: &llm::Request) -> Result<llm::Outcome, String> {
+    let started = Instant::now();
+    let result = llm::stream(t.http, t.ep, req, t.cancel, &mut |_e: Event| {}).await;
+    let stopped = t.cancel.is_cancelled();
+    let (usage, status, error) = match &result {
+        Ok(o) => (o.usage, "ok", None),
+        Err(_) if stopped => (Default::default(), "stopped", None),
+        Err(e) => (Default::default(), "error", Some(e.to_string())),
+    };
+    let cost = crate::usage::record(
+        &job.state,
+        crate::usage::Record {
+            user: Some(job.user.id),
+            chat: Some(job.chat_id),
+            message: Some(job.assistant_msg),
+            model: &job.model,
+            source: "chat",
+            usage,
+            latency_ms: started.elapsed().as_millis() as i64,
+            status,
+            error,
+        },
+    )
+    .await;
+    {
+        let mut spent = t.spent.lock().expect("spent");
+        spent.0.add(&usage);
+        spent.1 += cost;
+    }
+    result.map_err(|e| if stopped { "Stopped by the user.".to_string() } else { e.to_string() })
+}
+
+/// Roughly how many tokens a conversation takes (on the high side).
+fn approx_tokens(messages: &[Msg]) -> i64 {
+    let chars: usize = messages
+        .iter()
+        .map(|m| match m {
+            Msg::Plain { content, .. } => content
+                .iter()
+                .map(|b| match b {
+                    Block::Text(t) => t.len(),
+                    Block::Image { .. } => 6000,
+                    Block::ToolUse { input, .. } => input.to_string().len() + 40,
+                    Block::ToolResult { content, .. } => content.len() + 20,
+                })
+                .sum::<usize>(),
+            Msg::AnthropicRaw { messages, .. } => messages.iter().map(|m| m.to_string().len()).sum(),
+        })
+        .sum();
+    (chars / 3) as i64
+}
+
+/// The tokens a conversation may take before it is summarized: 70% of the model's context
+/// window (Claude models without one on record: 200,000 tokens). `None`: never.
+fn compact_at(model: &ModelRow) -> Option<i64> {
+    let window = model.context_window.map(i64::from).filter(|w| *w >= 4000).or((model.kind() == Kind::Anthropic).then_some(200_000))?;
+    Some(window * 7 / 10)
+}
+
+/// The message a summary stands in the conversation as, with the user's message it precedes.
+fn summary_message(summary: &str, user: Option<&str>) -> Msg {
+    let mut s =
+        format!("[The conversation up to here was summarized to make room. This is the summary; the original messages are gone.]\n\n{}", summary.trim());
+    match user {
+        Some(u) => s.push_str(&format!("\n\n[End of the summary. The user's next message:]\n\n{u}")),
+        None => s.push_str("\n\n[End of the summary. Go on with the work where it stands; don't ask the user to repeat anything.]"),
+    }
+    Msg::user(s)
+}
+
+/// Asks the model to summarize `messages` (the conversation so far).
+async fn summarize(job: &Job, hub: &Hub, t: &Tooling<'_>, req: &llm::Request, messages: &[Msg]) -> Option<String> {
+    let id = new_id().to_string();
+    hub.publish(json!({ "type": "part", "part": { "type": "compaction", "id": id, "status": "running" } }));
+    let mut req = req.clone();
+    req.messages = messages.to_vec();
+    req.messages.push(Msg::user(COMPACT_PROMPT));
+    let res = quiet_call(job, t, &req).await;
+    match res {
+        Ok(o) if !o.text.trim().is_empty() => {
+            hub.publish(json!({ "type": "part", "part": { "type": "compaction", "id": id, "status": "done", "chars": o.text.chars().count() } }));
+            Some(o.text)
+        }
+        other => {
+            let e = other.err().unwrap_or_else(|| "the model wrote no summary".into());
+            tracing::warn!(model = %job.model.model, "summarizing the conversation failed: {e}");
+            hub.publish(json!({ "type": "part", "part": { "type": "compaction", "id": id, "status": "error", "error": e } }));
+            None
+        }
+    }
+}
 
 fn tool_defs(web_engine: bool, fetch: bool) -> Vec<ToolDef> {
     let mut tools = Vec::new();
@@ -212,10 +355,20 @@ async fn history(state: &AppState, leaf: Uuid) -> anyhow::Result<Vec<Msg>> {
     .fetch_all(&state.db)
     .await?;
     let mut out = Vec::new();
+    let mut last_user = String::new();
     for (_, role, content, raw, status) in rows {
         if role == "user" {
+            last_user = content.clone();
             out.push(Msg::user(content));
             continue;
+        }
+        // an answer during which the conversation was summarized: what came before is replaced
+        if status == "complete"
+            && let Some(c) = raw.as_ref().map(|r| &r["compact"])
+            && let Some(summary) = c["summary"].as_str()
+        {
+            out.clear();
+            out.push(summary_message(summary, c["keepUser"].as_bool().unwrap_or(false).then_some(last_user.as_str())));
         }
         if content.trim().is_empty() {
             continue;
@@ -281,7 +434,12 @@ async fn run(job: Job, hub: Arc<Hub>, cancel: CancellationToken) {
     if let Some(d) = desktop {
         let local: Vec<_> = d.tools.iter().filter(|t| !tools.iter().any(|x| x.name == t.def.name)).map(|t| t.def.clone()).collect();
         tools.extend(local);
+        if d.policy.general.subagents {
+            tools.retain(|t| t.name != TASK);
+            tools.push(task_tool());
+        }
     }
+    let agent_calls = desktop.map_or(0, |d| d.policy.general.max_subagent_tool_calls.clamp(1, 200)) as usize;
     let max_calls = match desktop {
         Some(d) => d.policy.general.max_tool_calls.clamp(1, 500),
         None => ws.max_tool_calls.max(1),
@@ -342,6 +500,30 @@ async fn run(job: Job, hub: Arc<Hub>, cancel: CancellationToken) {
     let mut anthropic_turns: Vec<Value> = Vec::new();
     let mut tool_budget = max_calls;
     let mut text_so_far = String::new();
+    let mut agent_req = req.clone();
+    agent_req.tools.retain(|t| t.name != TASK);
+    agent_req.system = Some(format!("{}\n\n{AGENT_NOTE}", agent_req.system.as_deref().unwrap_or_default()));
+    let spent = Mutex::new((llm::Usage::default(), 0.0));
+    let tooling =
+        Tooling { http: &http, ep: &ep, agent: &agent_req, agent_calls, search_key: search_key.as_deref(), sources: &sources, cancel: &cancel, spent: &spent };
+    // a conversation too long for the model is summarized: before the answer, and again
+    // whenever the tool results of this answer fill the context
+    let limit = compact_at(&job.model);
+    let mut compacted: Option<Value> = None;
+    if let Some(limit) = limit
+        && messages.len() > 2
+        && approx_tokens(&messages) > limit
+        && let Some(summary) = summarize(&job, &hub, &tooling, &req, &messages[..messages.len() - 1]).await
+    {
+        let question = match messages.last() {
+            Some(Msg::Plain { content, .. }) => {
+                content.iter().filter_map(|b| if let Block::Text(t) = b { Some(t.as_str()) } else { None }).collect::<Vec<_>>().join("\n")
+            }
+            _ => String::new(),
+        };
+        messages = vec![summary_message(&summary, Some(&question))];
+        compacted = Some(json!({ "summary": summary, "keepUser": true }));
+    }
     for round in 0..(max_calls + 4) {
         if cancel.is_cancelled() {
             out.status = "stopped";
@@ -444,15 +626,36 @@ async fn run(job: Job, hub: Arc<Hub>, cancel: CancellationToken) {
                     }
                 };
                 messages.push(assistant_turn);
+                // calls that only read run at the same time; the others one after another
                 let mut results = Vec::new();
-                for call in &o.tool_calls {
-                    let (content, is_error) = if tool_budget == 0 {
-                        ("Tool call limit reached for this answer. Answer with the information you already have.".to_string(), true)
-                    } else {
-                        tool_budget -= 1;
-                        run_tool(&job, &hub, call, search_key.as_deref(), &sources, &cancel).await
-                    };
-                    results.push(Block::ToolResult { id: call.id.clone(), content, is_error });
+                let calls = &o.tool_calls;
+                let mut i = 0;
+                while i < calls.len() {
+                    let mut j = i + 1;
+                    if reads_only(&job, &sources, &calls[i].name) {
+                        while j < calls.len() && reads_only(&job, &sources, &calls[j].name) {
+                            j += 1;
+                        }
+                    }
+                    let within: Vec<bool> = calls[i..j]
+                        .iter()
+                        .map(|_| {
+                            tool_budget > 0 && {
+                                tool_budget -= 1;
+                                true
+                            }
+                        })
+                        .collect();
+                    let (job, hub, tooling) = (&job, &*hub, &tooling);
+                    let outs =
+                        futures::future::join_all(calls[i..j].iter().zip(within).map(|(call, ok)| async move {
+                            if ok { run_tool(job, hub, call, tooling, None).await } else { (LIMIT_REACHED.to_string(), true) }
+                        }))
+                        .await;
+                    for (call, (content, is_error)) in calls[i..j].iter().zip(outs) {
+                        results.push(Block::ToolResult { id: call.id.clone(), content, is_error });
+                    }
+                    i = j;
                 }
                 if kind == Kind::Anthropic {
                     let blocks: Vec<Value> = llm::anthropic::messages_json(&[Msg::Plain { role: Role::User, content: results.clone() }])
@@ -462,6 +665,16 @@ async fn run(job: Job, hub: Arc<Hub>, cancel: CancellationToken) {
                     anthropic_turns.push(json!({ "role": "user", "content": blocks }));
                 }
                 messages.push(Msg::Plain { role: Role::User, content: results });
+                let used = (o.usage.input + o.usage.cache_read + o.usage.cache_write + o.usage.output).max(approx_tokens(&messages) * 3 / 4);
+                if let Some(limit) = limit
+                    && used > limit
+                    && !cancel.is_cancelled()
+                    && let Some(summary) = summarize(&job, &hub, &tooling, &req, &messages).await
+                {
+                    messages = vec![summary_message(&summary, None)];
+                    anthropic_turns.clear();
+                    compacted = Some(json!({ "summary": summary, "keepUser": false }));
+                }
                 continue;
             }
             Stop::Pause if o.raw_content.is_some() => {
@@ -481,8 +694,22 @@ async fn run(job: Job, hub: Arc<Hub>, cancel: CancellationToken) {
         }
     }
     flushing.cancel();
-    if out.status == "complete" && kind == Kind::Anthropic && !anthropic_turns.is_empty() {
-        out.raw = Some(json!({ "anthropic": anthropic_turns }));
+    {
+        let spent = spent.lock().expect("spent");
+        out.usage.add(&spent.0);
+        out.cost += spent.1;
+    }
+    if out.status == "complete" {
+        let mut raw = serde_json::Map::new();
+        if kind == Kind::Anthropic && !anthropic_turns.is_empty() {
+            raw.insert("anthropic".into(), Value::Array(anthropic_turns));
+        }
+        if let Some(c) = compacted {
+            raw.insert("compact".into(), c);
+        }
+        if !raw.is_empty() {
+            out.raw = Some(Value::Object(raw));
+        }
     }
     finish(&job, &hub, out, started).await;
 }
@@ -503,23 +730,108 @@ struct Outcome {
     raw: Option<Value>,
 }
 
-/// Runs one of our tools; returns (content for the model, is_error).
-async fn run_tool(
-    job: &Job,
-    hub: &Hub,
-    call: &ToolCall,
-    search_key: Option<&str>,
-    sources: &[crate::connectors::Linked],
-    cancel: &CancellationToken,
-) -> (String, bool) {
+/// Whether a tool only reads (searches, page fetches, reading the project, sub-agents): such
+/// calls of one turn run at the same time.
+fn reads_only(job: &Job, sources: &[crate::connectors::Linked], name: &str) -> bool {
+    if matches!(name, WEB_SEARCH | FETCH_URL | TASK) || sources.iter().any(|s| s.tool == name) {
+        return true;
+    }
+    job.desktop
+        .as_ref()
+        .and_then(|d| d.find(name))
+        .is_some_and(|t| t.feature == "code" && matches!(t.remote_name.as_str(), "list_files" | "read_file" | "search_files"))
+}
+
+/// A sub-agent: the same model with the same tools and an empty context works on
+/// `call.input.prompt`; only its final message goes back. Its tool calls show in the chat
+/// under it and are recorded like any other.
+fn run_agent<'a>(job: &'a Job, hub: &'a Hub, call: &'a ToolCall, t: &'a Tooling<'a>) -> futures::future::BoxFuture<'a, (String, bool)> {
+    Box::pin(async move {
+        let prompt = call.input["prompt"].as_str().unwrap_or_default().trim();
+        let description: String = call.input["description"].as_str().unwrap_or("Sub-agent").trim().chars().take(120).collect();
+        if prompt.is_empty() {
+            return ("The prompt is empty.".to_string(), true);
+        }
+        let id = new_id().to_string();
+        let shown: String = prompt.chars().take(4000).collect();
+        let part = |status: &str, steps: usize, output: &str, error: Option<&str>| {
+            json!({ "type": "part", "part": {
+                "type": "agent", "id": id, "description": description, "prompt": shown, "status": status, "steps": steps,
+                "output": crate::desktop::shown(output), "error": error } })
+        };
+        hub.publish(part("running", 0, "", None));
+        let kind = job.model.kind();
+        let mut req = t.agent.clone();
+        let mut messages = vec![Msg::user(prompt)];
+        let mut budget = t.agent_calls;
+        let mut steps = 0usize;
+        let mut answer = String::new();
+        for _ in 0..(t.agent_calls + 4) {
+            req.messages = messages.clone();
+            let o = match quiet_call(job, t, &req).await {
+                Ok(o) => o,
+                Err(e) => {
+                    hub.publish(part(if t.cancel.is_cancelled() { "stopped" } else { "error" }, steps, "", Some(&e)));
+                    return (format!("The sub-agent didn't finish: {e}"), true);
+                }
+            };
+            if !o.text.trim().is_empty() {
+                answer = o.text.clone();
+            }
+            match o.stop {
+                Stop::ToolUse if !o.tool_calls.is_empty() => {
+                    messages.push(match &o.raw_content {
+                        Some(blocks) => Msg::AnthropicRaw { messages: vec![json!({ "role": "assistant", "content": blocks })], fallback_text: o.text.clone() },
+                        None => {
+                            let mut content = vec![Block::Text(o.text.clone())];
+                            content.extend(o.tool_calls.iter().map(|c| Block::ToolUse { id: c.id.clone(), name: c.name.clone(), input: c.input.clone() }));
+                            Msg::Plain { role: Role::Assistant, content }
+                        }
+                    });
+                    let mut results = Vec::new();
+                    for c in &o.tool_calls {
+                        let (content, is_error) = if budget == 0 {
+                            ("Tool call limit reached for this task. Report what you have.".to_string(), true)
+                        } else {
+                            budget -= 1;
+                            steps += 1;
+                            hub.publish(part("running", steps, "", None));
+                            run_tool(job, hub, c, t, Some(&id)).await
+                        };
+                        results.push(Block::ToolResult { id: c.id.clone(), content, is_error });
+                    }
+                    messages.push(Msg::Plain { role: Role::User, content: results });
+                }
+                Stop::Pause if o.raw_content.is_some() && kind == Kind::Anthropic => {
+                    messages
+                        .push(Msg::AnthropicRaw { messages: vec![json!({ "role": "assistant", "content": o.raw_content })], fallback_text: o.text.clone() });
+                }
+                _ => break,
+            }
+        }
+        if answer.trim().is_empty() {
+            hub.publish(part("error", steps, "", Some("The sub-agent ended without a report.")));
+            return ("The sub-agent ended without a report.".to_string(), true);
+        }
+        hub.publish(part("done", steps, &answer, None));
+        (answer, false)
+    })
+}
+
+/// Runs one of our tools; returns (content for the model, is_error). `agent`: the sub-agent
+/// the call belongs to.
+async fn run_tool(job: &Job, hub: &Hub, call: &ToolCall, t: &Tooling<'_>, agent: Option<&str>) -> (String, bool) {
+    let (search_key, sources, cancel) = (t.search_key, t.sources, t.cancel);
     let ws = &job.settings.web_search;
     let started = Instant::now();
     let ours = call.name == WEB_SEARCH || call.name == FETCH_URL || sources.iter().any(|s| s.tool == call.name);
-    if !ours
-        && let Some(session) = &job.desktop
-        && let Some(tool) = session.find(&call.name)
-    {
-        return run_desktop_tool(job, hub, session, tool, call, cancel).await;
+    if !ours && let Some(session) = &job.desktop {
+        if call.name == TASK && agent.is_none() && session.policy.general.subagents {
+            return run_agent(job, hub, call, t).await;
+        }
+        if let Some(tool) = session.find(&call.name) {
+            return run_desktop_tool(job, hub, session, tool, call, cancel, agent).await;
+        }
     }
     if let Some(src) = sources.iter().find(|s| s.tool == call.name) {
         let query = call.input["query"].as_str().unwrap_or_default().trim().to_string();
@@ -611,17 +923,25 @@ async fn run_desktop_tool(
     tool: &crate::desktop::SessionTool,
     call: &ToolCall,
     cancel: &CancellationToken,
+    agent: Option<&str>,
 ) -> (String, bool) {
     let started = Instant::now();
+    // an id of our own: the model's ids repeat between answers and sub-agents
+    let uid = new_id().to_string();
+    let input = &crate::desktop::scrub(&call.input);
     let part = |status: &str, output: &str, error: Option<&str>| {
         json!({ "type": "part", "part": {
-            "type": "tool", "id": call.id, "feature": tool.feature, "connector": tool.connector.as_ref().map(|c| c.1.as_str()),
-            "tool": tool.remote_name, "input": call.input, "status": status, "output": crate::desktop::shown(output), "error": error } })
+            "type": "tool", "id": uid, "agent": agent, "feature": tool.feature, "connector": tool.connector.as_ref().map(|c| c.1.as_str()),
+            "tool": tool.remote_name, "input": input, "status": status, "output": crate::desktop::shown(output), "error": error } })
     };
     hub.publish(part("running", "", None));
     let mut so_far = String::new();
-    let done = crate::desktop::call(&job.state, session, tool, &call.id, job.chat_id, job.assistant_msg, &call.input, cancel, |text| {
+    let done = crate::desktop::call(&job.state, session, tool, &uid, job.chat_id, job.assistant_msg, input, cancel, |text| {
         so_far.push_str(text);
+        // only the end is shown
+        if so_far.len() > 32_000 {
+            so_far = crate::desktop::shown(&so_far);
+        }
         hub.publish(part("running", &so_far, None));
     })
     .await;
@@ -629,7 +949,7 @@ async fn run_desktop_tool(
         "ok" => hub.publish(part("done", &done.content, None)),
         status => hub.publish(part(status, "", Some(&done.content))),
     }
-    crate::desktop::record(&job.state, job.user.id, session, tool, job.chat_id, job.assistant_msg, &call.input, &done, started).await;
+    crate::desktop::record(&job.state, job.user.id, session, tool, job.chat_id, job.assistant_msg, input, &done, started).await;
     let full = job.settings.audit_content == "full";
     crate::audit::log(
         &job.state,
@@ -639,7 +959,7 @@ async fn run_desktop_tool(
         Some(("chat", job.chat_id.to_string())),
         json!({
             "deviceId": session.device_id, "feature": tool.feature, "connector": tool.connector.as_ref().map(|c| c.1.as_str()), "tool": tool.remote_name,
-            "input": full.then_some(&call.input), "status": done.status, "resultChars": done.content.chars().count(), "messageId": job.assistant_msg,
+            "input": full.then_some(input), "status": done.status, "resultChars": done.content.chars().count(), "messageId": job.assistant_msg,
             "durationMs": started.elapsed().as_millis() as u64,
         }),
     )
