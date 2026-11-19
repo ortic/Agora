@@ -18,7 +18,8 @@ export function Login({ organization }: { organization: string }) {
   const redirects = providers.data?.providers.filter((p) => p.loginUrl) ?? []
   const hasLdap = providers.data?.providers.some((p) => p.type === 'ldap')
   const showForm = providers.data ? providers.data.passwordLogin || hasLdap : true
-  const next = params.get('next') ?? window.location.pathname
+  // the page asked for, with its query (e.g. /desktop/link?code=…), so it survives signing in
+  const next = params.get('next') ?? (window.location.pathname === '/' ? '/' : window.location.pathname + window.location.search)
 
   async function submit(e: FormEvent) {
     e.preventDefault()

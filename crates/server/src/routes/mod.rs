@@ -2,6 +2,7 @@ pub mod admin;
 pub mod auth;
 pub mod chats;
 pub mod connectors;
+pub mod desktop;
 pub mod openai_api;
 
 use axum::Router;
@@ -40,6 +41,20 @@ pub fn api() -> Router<AppState> {
         .route("/connectors/{id}/token", axum::routing::put(connectors::connect).delete(connectors::disconnect))
         .route("/admin/connectors", get(connectors::admin_list).post(connectors::admin_create))
         .route("/admin/connectors/{id}", patch(connectors::admin_update).delete(connectors::admin_delete))
+        // Agora Desktop: signing a device in, its connection, administration
+        .route("/desktop/login/start", post(desktop::login_start))
+        .route("/desktop/login/poll", post(desktop::login_poll))
+        .route("/desktop/login/{code}", get(desktop::login_info).post(desktop::login_decide))
+        .route("/desktop/policy", get(desktop::my_policy))
+        .route("/desktop/ws", get(desktop::ws))
+        .route("/me/devices", get(desktop::my_devices))
+        .route("/me/devices/{id}", delete(desktop::revoke_my_device))
+        .route("/admin/desktop", get(desktop::admin_get))
+        .route("/admin/desktop/features/{key}", axum::routing::put(desktop::admin_put_feature))
+        .route("/admin/desktop/connectors", post(desktop::admin_create_connector))
+        .route("/admin/desktop/connectors/{id}", patch(desktop::admin_update_connector).delete(desktop::admin_delete_connector))
+        .route("/admin/desktop/devices/{id}", delete(desktop::admin_revoke_device))
+        .route("/admin/desktop/tools", get(desktop::admin_tool_events))
         // OpenAI-compatible API (base URL: /api/v1)
         .route("/v1/models", get(openai_api::models))
         .route("/v1/chat/completions", post(openai_api::completions))

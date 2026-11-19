@@ -100,6 +100,8 @@ export interface Me {
   webSearch: boolean
   defaultModelId: string | null
   allowUserSystemPrompt: boolean
+  /** may sign in with Agora Desktop */
+  desktop: boolean
 }
 
 export const canAdmin = (u?: User | null) => u?.role === 'owner' || u?.role === 'admin'
@@ -155,6 +157,33 @@ export type Part =
   | { type: 'search'; id: string; engine: string; query: string; status: 'running' | 'done' | 'error'; results?: SearchHit[]; error?: string | null }
   | { type: 'fetch'; id: string; url: string; title?: string; status: 'running' | 'done' | 'error'; error?: string | null }
   | { type: 'knowledge'; id: string; source: string; query: string; status: 'running' | 'done' | 'error'; results?: SearchHit[]; error?: string | null }
+  | ToolPart
+
+/** A tool a model ran on the person's computer through Agora Desktop. */
+export interface ToolPart {
+  type: 'tool'
+  id: string
+  feature: 'code' | 'browser' | 'connector'
+  connector: string | null
+  tool: string
+  input: Record<string, unknown> | null
+  status: 'running' | 'done' | 'error' | 'denied' | 'blocked' | 'timeout'
+  output?: string
+  error?: string | null
+}
+
+export interface Device {
+  id: string
+  userId: string
+  user: string | null
+  name: string
+  platform: string | null
+  appVersion: string | null
+  createdAt: string
+  lastSeenAt: string | null
+  revokedAt: string | null
+  connected: boolean
+}
 
 export interface Message {
   id: string

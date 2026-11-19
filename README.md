@@ -56,6 +56,12 @@ when they roll such a tool out.
 - Local accounts, **single sign-on** with OpenID Connect (Microsoft Entra ID, Google, GitLab, Okta, Keycloak, Authentik, …), GitHub, **LDAP / Active Directory** and **SAML 2.0**, several at once, with **group sync** from the identity provider
 - Roles: owner, admin, auditor, member; personal API tokens
 
+**On people's computers (Agora Desktop)**
+- [Agora Desktop](https://github.com/ortic/AgoraDesktop) is a client of this server: models work on **code in dev containers**, drive **a browser**, and use **local connectors** (MCP servers) on the person's computer
+- **Nothing is available until an administrator grants it**: the app itself, code, the browser and each connector, to everyone or to groups; allowed container images, allowed and blocked sites, and whether the person confirms each change
+- Devices sign in through the browser (so single sign-on applies), are listed per person and can be signed out by them or by an administrator
+- **Every tool call is recorded**: who, which computer, which tool with which input, how it ended; in the audit log too
+
 **API**
 - **OpenAI-compatible API** (`/api/v1/models`, `/api/v1/chat/completions`, streaming) with personal tokens: point your editor, scripts or tools at Agora and the same access rules, budgets, usage records and audit apply
 
@@ -154,6 +160,29 @@ curl http://localhost:8790/api/v1/chat/completions \
   -d '{"model": "claude-opus-5-5", "messages": [{"role": "user", "content": "Hello"}], "stream": true}'
 ```
 
+## Agora Desktop
+
+The desktop app has no models and no rules of its own: it signs in to this server, and the
+model's tool loop keeps running here. A tool that needs the person's computer is sent to their
+app over a WebSocket (`/api/desktop/ws`) and answered from there.
+
+Under *Administration → Desktop*:
+
+| Setting | What it decides |
+|---|---|
+| **Agora Desktop** | who may sign in with the app at all (nobody by default); tool calls per answer, seconds a tool may take |
+| **Code in dev containers** | who gets file and command tools; the container images projects may use, the default image, network access of containers, whether the person confirms commands and file changes |
+| **Browser** | who gets the browser tools; allowed and blocked sites; whether the person confirms clicks and typing |
+| **Local connectors** | MCP servers the app may start (`command`, arguments, environment) or reach (URL) on the computer; which of their tools models get; for whom |
+| **Devices** | signed-in computers, with a sign-out |
+| **Tool activity** | every call a model made on someone's computer |
+
+What is enforced where: the server offers a model only the tools its user was granted, only for
+messages the app itself sent, and refuses blocked sites before a call leaves. The app checks each
+call against the same policy again and is what asks the person and keeps to the allowed images
+and sites on the computer. A connector's settings are sent to the apps of the people it is
+granted to: don't put secrets in them.
+
 ## Development
 
 ```bash
@@ -167,6 +196,6 @@ cargo test -p agora                          # unit tests
 Commands: `agora serve | migrate | verify-audit | healthcheck`.
 
 Layout: `crates/server` (the binary: `llm/` provider adapters, `chat.rs` answering and tool loop,
-`connectors.rs` knowledge sources, `web.rs` search and page reads, `audit.rs`, `usage.rs`,
+`connectors.rs` knowledge sources, `desktop.rs` the desktop app's policy and tool bridge, `web.rs` search and page reads, `audit.rs`, `usage.rs`,
 `sso/`, `routes/`), `web/` (React app). See [PLAN.md](PLAN.md) for the roadmap and
 [WORKLOG.md](WORKLOG.md) for what's been done.

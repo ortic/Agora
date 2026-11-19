@@ -325,3 +325,14 @@ table.data td.num, table.data th.num { text-align: right; font-variant-numeric: 
 .hljs-attr, .hljs-attribute, .hljs-name, .hljs-tag, .hljs-selector-class, .hljs-selector-id { color: var(--hl-attr); }
 .hljs-addition { color: var(--success); }
 .hljs-deletion { color: var(--danger); }
+
+/* tool calls on the person's computer (Agora Desktop) */
+.tool-body { padding: 2px 10px 8px; display: flex; flex-direction: column; gap: 6px; }
+.tool-body pre, pre.json {
+  margin: 0; padding: 8px 10px; border-radius: 6px; background: var(--bg); border: 1px solid var(--border);
+  font-size: 12.5px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 320px; overflow-y: auto;
+}
+.tool-body pre.del { border-left: 3px solid var(--danger); }
+.tool-body pre.add { border-left: 3px solid var(--accent); }
+.feature-card { margin-bottom: 14px; }
+.feature-card h3 { margin: 0 0 2px; }

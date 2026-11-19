@@ -44,8 +44,34 @@ host: npm runs in the `node:22-bookworm-slim` image.
   chat take ~3 min and drove WSL out of memory → set `OLLAMA_CONTEXT_LENGTH` (e.g. 32768) and
   raise `memory=` in .wslconfig for bigger models.
 
+## 2026-11-19
+
+Agora Desktop: a desktop client (new repository `../AgoraDesktop`, egui on DbCraft's foundation)
+with Agora as its backend.
+
+- Server (`desktop.rs`, `routes/desktop.rs`, migration 0003): features `desktop` / `code` /
+  `browser` granted to nobody, everyone or groups, each with settings; local connectors (MCP);
+  device sign-in confirmed in the web app; device tokens; a WebSocket per connected app over
+  which the chat's tool loop runs tools on the person's computer (progress, cancel, timeout);
+  `tool_events` and audit events; policy pushed to connected apps on change
+- Chat: a message sent from the app may name the tools of that computer it wants; the server
+  intersects that with the person's grants. Tool budget per answer is the desktop's own
+  (default 60) when its tools are in use. Web sessions never get a device's tools
+- Web app: *Administration → Desktop* (features, connectors, devices, tool activity),
+  `/desktop/link` to confirm a device (the code survives signing in), devices under Settings,
+  tool calls shown in chats and the conversation inspector
+- Verified end to end with a scripted mock model and a throwaway Postgres: sign-in refused
+  before the grant; code tools in a `debian:bookworm-slim` dev container (list, read, edit,
+  write, search, run, timeout); approval `ask` declined and approved; revoking `code` removes the
+  tools; a web session asking for device tools gets none; an MCP stdio connector with a tool
+  allow-list (and one that fails to start); browser tools against headless Chromium with an
+  allowed-sites policy (leaving the allowed site is caught, password fields refused); audit
+  chain verifies. Web pages checked in Chromium (Playwright in docker), no console errors
+- Not verified: Windows and macOS (CI only), several replicas (a device connects to one)
+
 ### Next
 - Integration tests in `crates/server/tests` (mock provider, fresh database per test)
-- TaskCraft connector once its API is known; MCP servers as tools
+- TaskCraft connector once its API is known; MCP servers as tools on the server side
+- Desktop: packages and installers, replay of tool results for non-Claude models, calls routed between replicas
 - File attachments (images, PDFs), knowledge bases of Agora's own (pgvector)
 - TOTP/passkeys (port from WikiCraft), SIEM export of audit events, budget alerts

@@ -20,6 +20,8 @@ pub struct Inner {
     pub secrets: crate::crypto::Secrets,
     /// answers being generated on this replica, by assistant message id
     pub live: DashMap<Uuid, crate::chat::Live>,
+    /// desktop apps connected to this replica, by device id
+    pub devices: DashMap<Uuid, Arc<crate::desktop::Device>>,
     /// set on SIGTERM
     pub shutting_down: std::sync::atomic::AtomicBool,
 }
@@ -39,7 +41,9 @@ impl AppState {
         sqlx::query("INSERT INTO settings (id) VALUES (true) ON CONFLICT DO NOTHING").execute(&db).await?;
         let providers = crate::sso::load(&config)?;
         let secrets = crate::crypto::Secrets::new(&config.secret_key);
-        Ok(AppState { inner: Arc::new(Inner { db, config, providers, secrets, live: DashMap::new(), shutting_down: Default::default() }) })
+        Ok(AppState {
+            inner: Arc::new(Inner { db, config, providers, secrets, live: DashMap::new(), devices: DashMap::new(), shutting_down: Default::default() }),
+        })
     }
 }
 

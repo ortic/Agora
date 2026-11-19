@@ -144,6 +144,8 @@ pub struct Job {
     pub effort: Option<String>,
     /// write a title after this answer
     pub title_after: bool,
+    /// tools on the person's computer (the request came from their desktop app)
+    pub desktop: Option<crate::desktop::Session>,
 }
 
 /// Starts generating; returns the hub to stream from.
@@ -248,6 +250,9 @@ fn system_prompt(job: &Job, tools: bool, sources: &[crate::connectors::Linked]) 
             names.join(", ")
         ));
     }
+    if let Some(d) = job.desktop.as_ref().filter(|_| job.model.cap("tools")) {
+        ctx.push_str(&d.system_note());
+    }
     parts.push(ctx);
     parts.join("\n\n")
 }
@@ -271,6 +276,16 @@ async fn run(job: Job, hub: Arc<Hub>, cancel: CancellationToken) {
     let mut tools = tool_defs(engine, fetch);
     let sources = if job.knowledge && job.model.cap("tools") { crate::connectors::linked(&state, job.user.id).await.unwrap_or_default() } else { vec![] };
     tools.extend(sources.iter().map(crate::connectors::tool_def));
+    // tools on the person's computer; ours win when a name is taken
+    let desktop = job.desktop.as_ref().filter(|_| job.model.cap("tools"));
+    if let Some(d) = desktop {
+        let local: Vec<_> = d.tools.iter().filter(|t| !tools.iter().any(|x| x.name == t.def.name)).map(|t| t.def.clone()).collect();
+        tools.extend(local);
+    }
+    let max_calls = match desktop {
+        Some(d) => d.policy.general.max_tool_calls.clamp(1, 500),
+        None => ws.max_tool_calls.max(1),
+    } as usize;
     let search_key = ws.api_key_enc.as_deref().and_then(base64_decode).and_then(|k| state.secrets.decrypt(&k).ok());
 
     // keep the stored message current while streaming (other tabs, restarts)
@@ -325,9 +340,9 @@ async fn run(job: Job, hub: Arc<Hub>, cancel: CancellationToken) {
     };
     let mut out = Outcome { status: "complete", ..Default::default() };
     let mut anthropic_turns: Vec<Value> = Vec::new();
-    let mut tool_budget = ws.max_tool_calls.max(1) as usize;
+    let mut tool_budget = max_calls;
     let mut text_so_far = String::new();
-    for round in 0..(ws.max_tool_calls as usize + 4) {
+    for round in 0..(max_calls + 4) {
         if cancel.is_cancelled() {
             out.status = "stopped";
             break;
@@ -435,7 +450,7 @@ async fn run(job: Job, hub: Arc<Hub>, cancel: CancellationToken) {
                         ("Tool call limit reached for this answer. Answer with the information you already have.".to_string(), true)
                     } else {
                         tool_budget -= 1;
-                        run_tool(&job, &hub, call, search_key.as_deref(), &sources).await
+                        run_tool(&job, &hub, call, search_key.as_deref(), &sources, &cancel).await
                     };
                     results.push(Block::ToolResult { id: call.id.clone(), content, is_error });
                 }
@@ -489,9 +504,23 @@ struct Outcome {
 }
 
 /// Runs one of our tools; returns (content for the model, is_error).
-async fn run_tool(job: &Job, hub: &Hub, call: &ToolCall, search_key: Option<&str>, sources: &[crate::connectors::Linked]) -> (String, bool) {
+async fn run_tool(
+    job: &Job,
+    hub: &Hub,
+    call: &ToolCall,
+    search_key: Option<&str>,
+    sources: &[crate::connectors::Linked],
+    cancel: &CancellationToken,
+) -> (String, bool) {
     let ws = &job.settings.web_search;
     let started = Instant::now();
+    let ours = call.name == WEB_SEARCH || call.name == FETCH_URL || sources.iter().any(|s| s.tool == call.name);
+    if !ours
+        && let Some(session) = &job.desktop
+        && let Some(tool) = session.find(&call.name)
+    {
+        return run_desktop_tool(job, hub, session, tool, call, cancel).await;
+    }
     if let Some(src) = sources.iter().find(|s| s.tool == call.name) {
         let query = call.input["query"].as_str().unwrap_or_default().trim().to_string();
         let space = call.input["space"].as_str();
@@ -571,6 +600,51 @@ async fn run_tool(job: &Job, hub: &Hub, call: &ToolCall, search_key: Option<&str
         }
         other => (format!("Unknown tool {other}."), true),
     }
+}
+
+/// Runs a tool on the person's computer through their desktop app, shows it in the chat and
+/// records it.
+async fn run_desktop_tool(
+    job: &Job,
+    hub: &Hub,
+    session: &crate::desktop::Session,
+    tool: &crate::desktop::SessionTool,
+    call: &ToolCall,
+    cancel: &CancellationToken,
+) -> (String, bool) {
+    let started = Instant::now();
+    let part = |status: &str, output: &str, error: Option<&str>| {
+        json!({ "type": "part", "part": {
+            "type": "tool", "id": call.id, "feature": tool.feature, "connector": tool.connector.as_ref().map(|c| c.1.as_str()),
+            "tool": tool.remote_name, "input": call.input, "status": status, "output": crate::desktop::shown(output), "error": error } })
+    };
+    hub.publish(part("running", "", None));
+    let mut so_far = String::new();
+    let done = crate::desktop::call(&job.state, session, tool, &call.id, job.chat_id, job.assistant_msg, &call.input, cancel, |text| {
+        so_far.push_str(text);
+        hub.publish(part("running", &so_far, None));
+    })
+    .await;
+    match done.status {
+        "ok" => hub.publish(part("done", &done.content, None)),
+        status => hub.publish(part(status, "", Some(&done.content))),
+    }
+    crate::desktop::record(&job.state, job.user.id, session, tool, job.chat_id, job.assistant_msg, &call.input, &done, started).await;
+    let full = job.settings.audit_content == "full";
+    crate::audit::log(
+        &job.state,
+        Some(&job.user),
+        Some(&job.client),
+        "desktop.tool",
+        Some(("chat", job.chat_id.to_string())),
+        json!({
+            "deviceId": session.device_id, "feature": tool.feature, "connector": tool.connector.as_ref().map(|c| c.1.as_str()), "tool": tool.remote_name,
+            "input": full.then_some(&call.input), "status": done.status, "resultChars": done.content.chars().count(), "messageId": job.assistant_msg,
+            "durationMs": started.elapsed().as_millis() as u64,
+        }),
+    )
+    .await;
+    (done.content, done.is_error)
 }
 
 /// Stores a search or fetch and audits it.

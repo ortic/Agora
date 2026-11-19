@@ -153,6 +153,10 @@ pub async fn me(State(state): State<AppState>, MaybeUser(user): MaybeUser) -> Ap
         "webSearch": web,
         "defaultModelId": s.default_model_id,
         "allowUserSystemPrompt": s.allow_user_system_prompt,
+        "desktop": match &user {
+            Some(u) => crate::desktop::may_use_desktop(&state, u.id).await,
+            None => false,
+        },
     })))
 }
 

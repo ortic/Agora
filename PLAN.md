@@ -145,7 +145,20 @@ browser ── /api (JSON, SSE) ──► agora (axum)
 - [ ] P1 Anthropic-compatible `/api/v1/messages` passthrough for Claude-native tools
 - [ ] P2 Webhooks
 
-### 4.8 Operations
+### 4.8 Agora Desktop (client in ../AgoraDesktop)
+- [x] P1 Device sign-in confirmed in the web app (code shown by the app; works with SSO); device tokens (`agd_…`); devices listed per person, sign-out by the person or an admin
+- [x] P1 Features granted per person: `desktop`, `code`, `browser`: nobody / everyone / groups, each with its settings (allowed images, default image, container network, approval mode; allowed and blocked sites)
+- [x] P1 Local connectors defined by admins (MCP over stdio or HTTP), tool allow-list, approval mode, access per group
+- [x] P1 Tool bridge: the tool loop stays on the server; calls go to the person's app over a WebSocket, with progress, cancel and timeout; tools only for messages sent from the app
+- [x] P1 `tool_events` log + audit (`desktop.tool`, `device.*`, `desktop.*_updated`); admin view; tool calls shown in chats (web and desktop)
+- [x] P1 Policy pushed to connected apps when an admin changes it; revoking the app disconnects them
+- [ ] P1 Tool results of earlier turns replayed to non-Claude models (today: only the answer's text)
+- [ ] P1 Several replicas: a device is connected to one replica; calls must be routed to it
+- [ ] P2 Per-connector secrets held server-side and handed to the app encrypted per device
+- [ ] P2 Images (screenshots) as tool results
+- [ ] P2 People adding their own local connectors, if the admin allows it
+
+### 4.9 Operations
 - [x] P0 Single binary, embedded web app, `agora serve|migrate|verify-audit|healthcheck`
 - [ ] P0 Integration tests (mock provider, fresh database per test) in CI
 - [x] P0 Dockerfile, docker-compose (Postgres)
@@ -159,7 +172,9 @@ browser ── /api (JSON, SSE) ──► agora (axum)
 `settings` (singleton JSON) · `users` · `sessions` · `api_tokens` · `identities` · `auth_states` ·
 `login_attempts` · `groups` · `group_members` · `providers` · `models` · `model_groups` ·
 `chats` · `messages` (tree: `parent_id`; `chats.leaf_id` = current branch) · `usage_events` ·
-`web_events` (searches + fetches) · `audit_events` (hash chain).
+`web_events` (searches + fetches) · `audit_events` (hash chain) · desktop: `desktop_features` ·
+`desktop_feature_groups` · `local_connectors` · `local_connector_groups` · `devices` ·
+`device_logins` · `tool_events`.
 
 ## 6. Security notes
 

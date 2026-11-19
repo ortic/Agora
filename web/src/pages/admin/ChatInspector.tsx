@@ -2,6 +2,7 @@ import { useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { api, num, usd, when, type Chat, type Message, type User } from '../../api'
 import { Markdown } from '../../ui'
+import { ToolPartView } from '../Chat'
 
 interface Inspect {
   chat: Chat
@@ -34,6 +35,9 @@ export function ChatInspector() {
             {m.role === 'assistant' && <span>{num(m.inputTokens)} in · {num(m.outputTokens)} out · {usd(m.costUsd)}</span>}
             {m.status !== 'complete' && <span className="badge warn">{m.status}</span>}
           </div>
+          {m.parts.some((p) => p.type === 'tool') && (
+            <div className="parts">{m.parts.map((p, i) => (p.type === 'tool' ? <ToolPartView key={i} p={p} /> : null))}</div>
+          )}
           {m.role === 'user' ? <div style={{ whiteSpace: 'pre-wrap' }}>{m.content}</div> : <Markdown text={m.content || '*(no text)*'} />}
           {m.error && <div className="error-text">{m.error}</div>}
         </div>

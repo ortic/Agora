@@ -11,13 +11,15 @@ import {
   FileText,
   Globe,
   Pencil,
+  Plug,
   RefreshCw,
   Search,
   SlidersHorizontal,
   Square,
+  Terminal,
   TriangleAlert,
 } from 'lucide-react'
-import { api, ApiError, num, plural, streamEvents, usd, type Chat, type ConnectorInfo, type Me, type Message, type ModelInfo, type Part, type StreamEvent } from '../api'
+import { api, ApiError, num, plural, streamEvents, usd, type Chat, type ConnectorInfo, type Me, type Message, type ModelInfo, type Part, type StreamEvent, type ToolPart } from '../api'
 import { CopyButton, Dialog, hostOf, Markdown } from '../ui'
 
 interface ChatData {
@@ -600,7 +602,67 @@ function AssistantMessage(props: { m: Message; modelName?: string; siblings: Mes
   )
 }
 
+const str = (v: unknown) => (typeof v === 'string' ? v : v == null ? '' : JSON.stringify(v))
+
+/** One line saying what a tool call on the person's computer does. */
+function toolSummary(p: ToolPart): { verb: string; what: string; mono: boolean } {
+  const i = p.input ?? {}
+  switch (p.feature === 'connector' ? '' : p.tool) {
+    case 'run_command': return { verb: 'Run', what: str(i.command), mono: true }
+    case 'read_file': return { verb: 'Read', what: str(i.path), mono: true }
+    case 'write_file': return { verb: 'Write', what: str(i.path), mono: true }
+    case 'edit_file': return { verb: 'Edit', what: str(i.path), mono: true }
+    case 'list_files': return { verb: 'List', what: str(i.path) || '.', mono: true }
+    case 'search_files': return { verb: 'Search', what: str(i.pattern), mono: true }
+    case 'browser_navigate': return { verb: 'Open', what: str(i.url), mono: false }
+    case 'browser_snapshot': return { verb: 'Read the page', what: '', mono: false }
+    case 'browser_click': return { verb: 'Click', what: `element ${str(i.ref)}`, mono: false }
+    case 'browser_type': return { verb: 'Type', what: str(i.text), mono: false }
+    case 'browser_back': return { verb: 'Go back', what: '', mono: false }
+    default: return { verb: p.connector ? `${p.connector}:` : 'Tool', what: p.tool, mono: true }
+  }
+}
+
+const TOOL_STATUS: Record<string, string> = { denied: 'declined', blocked: 'blocked by policy', timeout: 'timed out', error: 'failed' }
+
+/** A tool call on the person's computer (Agora Desktop): what it did, and its output when opened. */
+export function ToolPartView({ p }: { p: ToolPart }) {
+  const Icon = p.feature === 'code' ? Terminal : p.feature === 'browser' ? Globe : Plug
+  const s = toolSummary(p)
+  const i = p.input ?? {}
+  const builtin = p.feature !== 'connector'
+  const failed = p.status !== 'running' && p.status !== 'done'
+  return (
+    <details className="tool">
+      <summary>
+        {p.status === 'running' ? <span className="spinner" /> : <Icon size={14} />}
+        <span>{s.verb}</span>
+        {s.what && <span className={`q${s.mono ? ' mono' : ''}`} style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>{s.what}</span>}
+        <span className="grow" />
+        {failed && <span className={p.status === 'error' || p.status === 'timeout' ? 'error-text' : 'badge warn'}>{TOOL_STATUS[p.status] ?? p.status}</span>}
+      </summary>
+      <div className="tool-body">
+        {builtin && p.tool === 'run_command' ? (
+          <pre>$ {str(i.command)}</pre>
+        ) : builtin && p.tool === 'edit_file' ? (
+          <>
+            <pre className="del">{str(i.old)}</pre>
+            <pre className="add">{str(i.new)}</pre>
+          </>
+        ) : builtin && p.tool === 'write_file' ? (
+          <pre>{str(i.content)}</pre>
+        ) : (
+          Object.keys(i).length > 0 && !(builtin && Object.keys(i).length === 1 && s.what) && <pre>{JSON.stringify(i, null, 2)}</pre>
+        )}
+        {p.error && <div className="error-text" style={{ fontSize: 13, whiteSpace: 'pre-wrap' }}>{p.error}</div>}
+        {p.output && <pre className="out">{p.output}</pre>}
+      </div>
+    </details>
+  )
+}
+
 function PartView({ p, live }: { p: Part; live: boolean }) {
+  if (p.type === 'tool') return <ToolPartView p={p} />
   if (p.type === 'reasoning') {
     return (
       <details className="reasoning" open={live}>

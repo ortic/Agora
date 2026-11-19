@@ -212,6 +212,31 @@ pub async fn user_from_api_token(state: &AppState, token: &str) -> Result<Option
     Ok(user)
 }
 
+/// Marks requests authenticated with the token of a signed-in desktop app.
+#[derive(Debug, Clone, Copy)]
+pub struct ViaDevice(pub Uuid);
+
+/// The owner of a device token, while the device isn't revoked and the person may still use
+/// the desktop app.
+pub async fn user_from_device_token(state: &AppState, token: &str) -> Result<Option<(User, Uuid)>, ApiError> {
+    let row: Option<(Uuid, Option<String>, String, String, String, Uuid)> = sqlx::query_as(
+        "SELECT u.id, u.email, u.name, u.role, u.status, d.id FROM devices d JOIN users u ON u.id = d.user_id
+         WHERE d.token_hash = $1 AND d.revoked_at IS NULL AND u.status = 'active'",
+    )
+    .bind(token_hash(token))
+    .fetch_optional(&state.db)
+    .await?;
+    let Some((id, email, name, role, status, device)) = row else { return Ok(None) };
+    if !crate::desktop::may_use_desktop(state, id).await {
+        return Ok(None);
+    }
+    let _ = sqlx::query("UPDATE devices SET last_seen_at = now() WHERE id = $1 AND (last_seen_at IS NULL OR last_seen_at < now() - interval '1 minute')")
+        .bind(device)
+        .execute(&state.db)
+        .await;
+    Ok(Some((User { id, email, name, role, status }, device)))
+}
+
 /// The authenticated user, if any. Never fails for anonymous requests.
 #[derive(Debug, Clone)]
 pub struct MaybeUser(pub Option<User>);
@@ -239,8 +264,17 @@ impl FromRequestParts<AppState> for MaybeUser {
         if let Some(auth) = parts.headers.get(header::AUTHORIZATION).and_then(|v| v.to_str().ok())
             && let Some(tok) = auth.strip_prefix("Bearer ").map(str::trim)
         {
-            let Some(user) = user_from_api_token(state, tok).await? else {
-                return Err(ApiError::Unauthorized);
+            let user = if tok.starts_with(crate::desktop::DEVICE_TOKEN_PREFIX) {
+                let Some((user, device)) = user_from_device_token(state, tok).await? else {
+                    return Err(ApiError::Unauthorized);
+                };
+                parts.extensions.insert(ViaDevice(device));
+                user
+            } else {
+                let Some(user) = user_from_api_token(state, tok).await? else {
+                    return Err(ApiError::Unauthorized);
+                };
+                user
             };
             parts.extensions.insert(ViaToken);
             let mu = MaybeUser(Some(user));
@@ -286,6 +320,19 @@ impl FromRequestParts<AppState> for AuditorUser {
     async fn from_request_parts(parts: &mut Parts, state: &AppState) -> Result<Self, Self::Rejection> {
         let CurrentUser(u) = CurrentUser::from_request_parts(parts, state).await?;
         if u.can_audit() { Ok(AuditorUser(u)) } else { Err(ApiError::Forbidden) }
+    }
+}
+
+/// The desktop app the request comes from, if it was made with a device token.
+#[derive(Debug, Clone, Copy)]
+pub struct MaybeDevice(pub Option<Uuid>);
+
+impl FromRequestParts<AppState> for MaybeDevice {
+    type Rejection = ApiError;
+
+    async fn from_request_parts(parts: &mut Parts, state: &AppState) -> Result<Self, Self::Rejection> {
+        MaybeUser::from_request_parts(parts, state).await?;
+        Ok(MaybeDevice(parts.extensions.get::<ViaDevice>().map(|d| d.0)))
     }
 }
 

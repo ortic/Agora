@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { KeyRound, Trash2 } from 'lucide-react'
+import { type Device } from '../api'
 import { ago, api, num, usd, type Budget, type Me } from '../api'
 import { applyTheme, Bars, CopyButton, Dialog, ErrorText, getTheme, Meter, type Theme } from '../ui'
 import { Connections } from '../components/Connections'
@@ -86,6 +87,8 @@ export function SettingsPage({ me }: { me: Me }) {
 
         <Connections />
 
+        <Devices show={me.desktop} />
+
         <Tokens />
 
         <h2>Appearance</h2>
@@ -119,6 +122,43 @@ export function lastDays<T extends { day: string }>(n: number, rows: (T & { cost
     out.push({ day: d, costUsd: by.get(d) ?? 0 })
   }
   return out
+}
+
+/** Computers signed in with Agora Desktop. */
+function Devices({ show }: { show: boolean }) {
+  const qc = useQueryClient()
+  const devices = useQuery({ queryKey: ['my-devices'], queryFn: () => api.get<Device[]>('/me/devices') })
+  const remove = useMutation({ mutationFn: (id: string) => api.del(`/me/devices/${id}`), onSuccess: () => qc.invalidateQueries({ queryKey: ['my-devices'] }) })
+  const rows = (devices.data ?? []).filter((d) => !d.revokedAt)
+  if (!show && rows.length === 0) return null
+  return (
+    <>
+      <h2>Devices</h2>
+      <p className="muted" style={{ marginTop: 0 }}>
+        Computers signed in with Agora Desktop. There, models can work with what your organization allows: code in dev containers, a browser, local connectors.
+      </p>
+      <div className="table-wrap">
+        <table className="data">
+          <tbody>
+            {rows.map((d) => (
+              <tr key={d.id}>
+                <td>
+                  <strong>{d.name}</strong> {d.connected && <span className="badge accent">connected</span>}
+                  <div className="faint" style={{ fontSize: 12.5 }}>{[d.platform, d.appVersion && `version ${d.appVersion}`].filter(Boolean).join(' · ')}</div>
+                </td>
+                <td className="faint">signed in {ago(d.createdAt)}{d.lastSeenAt ? ` · last seen ${ago(d.lastSeenAt)}` : ''}</td>
+                <td style={{ textAlign: 'right' }}>
+                  <button className="btn small ghost" disabled={remove.isPending} onClick={() => confirm(`Sign ${d.name} out? The app there has to be signed in again.`) && remove.mutate(d.id)}>Sign out</button>
+                </td>
+              </tr>
+            ))}
+            {rows.length === 0 && <tr><td className="empty">No devices. Start Agora Desktop on your computer and sign in from there.</td></tr>}
+          </tbody>
+        </table>
+      </div>
+      <ErrorText error={remove.error} />
+    </>
+  )
 }
 
 function Tokens() {

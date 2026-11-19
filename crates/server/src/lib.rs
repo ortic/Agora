@@ -9,6 +9,7 @@ pub mod chat;
 pub mod config;
 pub mod connectors;
 pub mod crypto;
+pub mod desktop;
 pub mod error;
 pub mod llm;
 pub mod maintenance;

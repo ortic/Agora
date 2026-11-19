@@ -11,7 +11,7 @@ use uuid::Uuid;
 
 use crate::app::{AppState, new_id};
 use crate::audit;
-use crate::auth::{Client, CurrentUser, User};
+use crate::auth::{Client, CurrentUser, MaybeDevice, User};
 use crate::chat::{self, Job};
 use crate::error::{ApiError, ApiResult};
 
@@ -224,12 +224,15 @@ pub struct SendRequest {
     web_search: Option<bool>,
     knowledge: Option<bool>,
     effort: Option<String>,
+    /// from the desktop app: which tools on the person's computer this answer may use
+    desktop: Option<crate::desktop::Wanted>,
 }
 
 /// `POST /api/chats/{id}/messages`: sends a message and streams the answer (SSE).
 pub async fn send(
     State(state): State<AppState>,
     CurrentUser(user): CurrentUser,
+    MaybeDevice(device): MaybeDevice,
     client: Client,
     Path(id): Path<Uuid>,
     Json(req): Json<SendRequest>,
@@ -301,7 +304,8 @@ pub async fn send(
     )
     .await;
     let title_after = req.parent_id.is_none() && chat.title == "New chat";
-    stream_answer(&state, user, client, settings, &chat, model, user_msg, assistant_msg, web, knowledge, req.effort, title_after).await
+    let desktop = desktop_session(&state, &user, device, req.desktop.as_ref()).await;
+    stream_answer(&state, user, client, settings, &chat, model, user_msg, assistant_msg, web, knowledge, req.effort, title_after, desktop).await
 }
 
 #[derive(Deserialize)]
@@ -313,12 +317,19 @@ pub struct RegenerateRequest {
     web_search: Option<bool>,
     knowledge: Option<bool>,
     effort: Option<String>,
+    desktop: Option<crate::desktop::Wanted>,
+}
+
+/// The tools of the person's desktop app for an answer: only for requests the app itself made.
+async fn desktop_session(state: &AppState, user: &User, device: Option<Uuid>, wanted: Option<&crate::desktop::Wanted>) -> Option<crate::desktop::Session> {
+    crate::desktop::session(state, user, device?, wanted?).await
 }
 
 /// `POST /api/chats/{id}/regenerate`: another answer to a message (a new branch).
 pub async fn regenerate(
     State(state): State<AppState>,
     CurrentUser(user): CurrentUser,
+    MaybeDevice(device): MaybeDevice,
     client: Client,
     Path(id): Path<Uuid>,
     Json(req): Json<RegenerateRequest>,
@@ -358,7 +369,8 @@ pub async fn regenerate(
     .await;
     let web = req.web_search.unwrap_or_else(|| chat.settings["webSearch"].as_bool().unwrap_or(false));
     let knowledge = req.knowledge.unwrap_or_else(|| chat.settings["knowledge"].as_bool().unwrap_or(false));
-    stream_answer(&state, user, client, settings, &chat, model, m.id, assistant_msg, web, knowledge, req.effort, false).await
+    let desktop = desktop_session(&state, &user, device, req.desktop.as_ref()).await;
+    stream_answer(&state, user, client, settings, &chat, model, m.id, assistant_msg, web, knowledge, req.effort, false, desktop).await
 }
 
 async fn stream_answer(
@@ -374,6 +386,7 @@ async fn stream_answer(
     knowledge: bool,
     effort: Option<String>,
     title_after: bool,
+    desktop: Option<crate::desktop::Session>,
 ) -> ApiResult<Response> {
     let effort =
         effort.filter(|e| matches!(e.as_str(), "low" | "medium" | "high" | "xhigh" | "max")).or_else(|| chat.settings["effort"].as_str().map(String::from));
@@ -396,6 +409,7 @@ async fn stream_answer(
         chat_system: chat.system_prompt.clone(),
         effort,
         title_after,
+        desktop,
     };
     let (hub, _snap, seq, rx) = chat::start(job);
     let stream = chat::sse_stream(hub, vec![first], seq, rx);
