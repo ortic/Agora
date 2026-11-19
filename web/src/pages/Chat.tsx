@@ -735,7 +735,7 @@ export function ToolPartView({ p }: { p: ToolPart }) {
   const builtin = p.feature !== 'connector'
   const failed = p.status !== 'running' && p.status !== 'done'
   return (
-    <details className="tool" style={p.agent ? { marginLeft: 18 } : undefined}>
+    <details className="tool" style={p.agent ? { marginLeft: 18 } : undefined} open={p.status === 'running' && !!p.output ? true : undefined}>
       <summary>
         {p.status === 'running' ? <span className="spinner" /> : <Icon size={14} />}
         <span>{s.verb}</span>
