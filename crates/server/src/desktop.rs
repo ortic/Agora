@@ -298,20 +298,23 @@ pub fn code_tools() -> Vec<ToolDef> {
         ),
         tool(
             "run_command",
-            "Run a shell command in the project's dev container (bash, working directory: the project root) and get its output and exit code. Use it to build, test, format, run git, install packages. Commands don't keep state between calls except for the files they change; they can't ask for input.",
+            "Run a shell command in the project's dev container (bash, working directory: the project root) and get its output and exit code. Use it to build, test, format, run git, install packages. Commands don't keep state between calls except for the files they change; they can't ask for input. You are not kept waiting for a long command: when it is still running after `checkAfterSecs` you get what it printed so far and an id, the command goes on, and command_output reads on. So look at early output and react (end a build that already failed with stop_command) instead of waiting for the end.",
             json!({
                 "command": { "type": "string", "description": "The command line" },
-                "timeoutSecs": { "type": "integer", "description": "Stop the command after this many seconds (default 120)" },
-                "background": { "type": "boolean", "description": "Start it and return at once with an id (dev servers, watchers, long builds). Read what it prints with command_output, end it with stop_command." }
+                "timeoutSecs": { "type": "integer", "description": "The command is stopped this many seconds after its start (default 120)" },
+                "checkAfterSecs": { "type": "integer", "description": "Seconds until you get the output so far of a command that is still running (default 30)" },
+                "until": { "type": "string", "description": "Regular expression: return as soon as the output matches it (e.g. `error|Listening on`), while the command goes on" },
+                "background": { "type": "boolean", "description": "Start it and return at once with an id, without a time limit (dev servers, watchers)" }
             }),
             &["command"],
         ),
         tool(
             "command_output",
-            "What a background command printed since you last asked, and whether it still runs (or its exit code).",
+            "What a command that is still running (or ended since) printed after what you have already seen, and whether it still runs or its exit code.",
             json!({
                 "id": { "type": "string", "description": "The id run_command returned" },
-                "waitSecs": { "type": "integer", "description": "Wait up to this many seconds for new output or the end (default 0, at most 60)" }
+                "waitSecs": { "type": "integer", "description": "Wait up to this many seconds for the command to end (default 0, at most 120)" },
+                "until": { "type": "string", "description": "Regular expression: return as soon as new output matches it" }
             }),
             &["id"],
         ),

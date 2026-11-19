@@ -104,6 +104,12 @@ Desktop, third round (same day):
 - Not verified: PDFs and tool-returned files against a real Claude or OpenAI model (the mock
   only shows what is sent)
 
+- Commands give the model their output while they run: `run_command` returns after
+  `checkAfterSecs` (default 30) or when the output matches `until`, the command goes on under
+  its time limit, `command_output` reads on (also with `until`). Verified live: partial output
+  after 2 s, a pattern reached at the right moment, the limit ending a command, stop ending a
+  command with child processes
+
 ### Next
 - Desktop review, server side: a device token is a full account credential (can approve another
   device, create API tokens, use admin routes): restrict what `agd_` tokens may call; group and
