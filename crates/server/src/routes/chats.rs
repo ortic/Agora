@@ -25,6 +25,7 @@ pub struct ChatRow {
     pub title: String,
     pub model_id: Option<Uuid>,
     pub system_prompt: Option<String>,
+    pub project_id: Option<Uuid>,
     pub settings: Value,
     pub leaf_id: Option<Uuid>,
     pub pinned: bool,
@@ -33,7 +34,7 @@ pub struct ChatRow {
     pub deleted_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
-const CHAT_COLUMNS: &str = "id, user_id, title, model_id, system_prompt, settings, leaf_id, pinned, created_at, updated_at, deleted_at";
+const CHAT_COLUMNS: &str = "id, user_id, title, model_id, system_prompt, project_id, settings, leaf_id, pinned, created_at, updated_at, deleted_at";
 
 #[derive(Debug, Serialize, sqlx::FromRow)]
 #[serde(rename_all = "camelCase")]
@@ -95,15 +96,17 @@ pub struct ListQuery {
     q: Option<String>,
     limit: Option<i64>,
     before: Option<chrono::DateTime<chrono::Utc>>,
+    /// only the chats of this project
+    project: Option<Uuid>,
 }
 
 pub async fn list(State(state): State<AppState>, CurrentUser(user): CurrentUser, Query(q): Query<ListQuery>) -> ApiResult<Json<Value>> {
     let limit = q.limit.unwrap_or(200).clamp(1, 500);
     let pattern =
         q.q.as_deref().map(str::trim).filter(|s| !s.is_empty()).map(|s| format!("%{}%", s.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_")));
-    let rows: Vec<(Uuid, String, bool, Option<Uuid>, chrono::DateTime<chrono::Utc>)> = sqlx::query_as(
-        "SELECT c.id, c.title, c.pinned, c.model_id, c.updated_at FROM chats c
-          WHERE c.user_id = $1 AND c.deleted_at IS NULL
+    let rows: Vec<(Uuid, String, bool, Option<Uuid>, chrono::DateTime<chrono::Utc>, Option<Uuid>, Option<String>)> = sqlx::query_as(
+        "SELECT c.id, c.title, c.pinned, c.model_id, c.updated_at, c.project_id, p.name FROM chats c LEFT JOIN projects p ON p.id = c.project_id
+          WHERE c.user_id = $1 AND c.deleted_at IS NULL AND ($5::uuid IS NULL OR c.project_id = $5)
             AND ($2::text IS NULL OR c.title ILIKE $2 OR EXISTS (SELECT 1 FROM messages m WHERE m.chat_id = c.id AND m.content ILIKE $2))
             AND ($4::timestamptz IS NULL OR c.updated_at < $4)
           ORDER BY c.pinned DESC, c.updated_at DESC LIMIT $3",
@@ -112,11 +115,14 @@ pub async fn list(State(state): State<AppState>, CurrentUser(user): CurrentUser,
     .bind(pattern)
     .bind(limit)
     .bind(q.before)
+    .bind(q.project)
     .fetch_all(&state.db)
     .await?;
     Ok(Json(json!(
         rows.iter()
-            .map(|(id, title, pinned, model, at)| json!({ "id": id, "title": title, "pinned": pinned, "modelId": model, "updatedAt": at }))
+            .map(|(id, title, pinned, model, at, project, project_name)| json!({
+                "id": id, "title": title, "pinned": pinned, "modelId": model, "updatedAt": at, "projectId": project, "project": project_name,
+            }))
             .collect::<Vec<_>>()
     )))
 }
@@ -127,30 +133,47 @@ pub struct CreateChat {
     model_id: Option<Uuid>,
     system_prompt: Option<String>,
     settings: Option<Value>,
+    project_id: Option<Uuid>,
 }
 
 pub async fn create(State(state): State<AppState>, CurrentUser(user): CurrentUser, client: Client, Json(req): Json<CreateChat>) -> ApiResult<Json<ChatRow>> {
     if let Some(m) = req.model_id {
         crate::catalog::for_user(&state, &user, m).await?;
     }
+    if let Some(p) = req.project_id {
+        crate::routes::projects::can_use(&state, &user, p).await?;
+    }
     let id = new_id();
-    sqlx::query("INSERT INTO chats (id, user_id, model_id, system_prompt, settings) VALUES ($1, $2, $3, $4, $5)")
+    sqlx::query("INSERT INTO chats (id, user_id, model_id, system_prompt, settings, project_id) VALUES ($1, $2, $3, $4, $5, $6)")
         .bind(id)
         .bind(user.id)
         .bind(req.model_id)
         .bind(req.system_prompt.filter(|s| !s.trim().is_empty()))
         .bind(req.settings.filter(Value::is_object).unwrap_or_else(|| json!({})))
+        .bind(req.project_id)
         .execute(&state.db)
         .await?;
-    audit::log(&state, Some(&user), Some(&client), "chat.created", Some(("chat", id.to_string())), json!({ "modelId": req.model_id })).await;
+    audit::log(
+        &state,
+        Some(&user),
+        Some(&client),
+        "chat.created",
+        Some(("chat", id.to_string())),
+        json!({ "modelId": req.model_id, "projectId": req.project_id }),
+    )
+    .await;
     Ok(Json(load_chat(&state, id).await?))
 }
 
 pub async fn get(State(state): State<AppState>, CurrentUser(user): CurrentUser, Path(id): Path<Uuid>) -> ApiResult<Json<Value>> {
     let chat = own_chat(&state, &user, id).await?;
+    let project: Option<String> = match chat.project_id {
+        Some(p) => sqlx::query_scalar("SELECT name FROM projects WHERE id = $1").bind(p).fetch_optional(&state.db).await?,
+        None => None,
+    };
     let messages = load_messages(&state, id).await?;
     let live: Vec<Uuid> = messages.iter().filter(|m| m.status == "streaming" && state.live.contains_key(&m.id)).map(|m| m.id).collect();
-    Ok(Json(json!({ "chat": chat, "messages": messages, "live": live })))
+    Ok(Json(json!({ "chat": chat, "project": project, "messages": messages, "live": live })))
 }
 
 #[derive(Deserialize)]
@@ -162,6 +185,14 @@ pub struct UpdateChat {
     system_prompt: Option<String>,
     settings: Option<Value>,
     leaf_id: Option<Uuid>,
+    /// moves the chat into a project, or out of its project (`null`)
+    #[serde(default, deserialize_with = "present")]
+    project_id: Option<Option<Uuid>>,
+}
+
+/// Tells a field that is `null` from one that is missing.
+fn present<'de, D: serde::Deserializer<'de>, T: Deserialize<'de>>(d: D) -> Result<Option<Option<T>>, D::Error> {
+    Option::<T>::deserialize(d).map(Some)
 }
 
 pub async fn update(
@@ -192,6 +223,12 @@ pub async fn update(
         let mut merged = chat.settings.as_object().cloned().unwrap_or_default();
         merged.extend(s.clone());
         sqlx::query("UPDATE chats SET settings = $2 WHERE id = $1").bind(id).bind(Value::Object(merged)).execute(&state.db).await?;
+    }
+    if let Some(project) = req.project_id {
+        if let Some(p) = project {
+            crate::routes::projects::can_use(&state, &user, p).await?;
+        }
+        sqlx::query("UPDATE chats SET project_id = $2 WHERE id = $1").bind(id).bind(project).execute(&state.db).await?;
     }
     if let Some(leaf) = req.leaf_id {
         let ok: bool =
@@ -493,6 +530,7 @@ async fn stream_answer(
         "userMessage": load_message(state, user_msg).await?,
         "assistantMessage": load_message(state, assistant_msg).await?,
     });
+    let project = crate::routes::projects::context(state, &user, chat.project_id).await;
     let job = Job {
         state: state.clone(),
         user,
@@ -505,6 +543,7 @@ async fn stream_answer(
         web,
         knowledge,
         chat_system: chat.system_prompt.clone(),
+        project,
         effort,
         title_after,
         desktop,

@@ -130,6 +130,25 @@ Claude Code as a backend (same day): provider kind `claude_code` (migration 0005
 - Not verified: with an API key instead of the signed-in account; several answers at once;
   images returned by tools through MCP; Claude Code's own sub-agents (`Task`)
 
+### Projects (2026-11-20)
+- `projects`, `project_groups`, `project_files`, `chats.project_id` (migration 0006);
+  `routes/projects.rs`: list, create, change, share, delete, files
+- A project belongs to its maker. Shared with everyone or groups (members: their own groups,
+  admins: all), others read it and start chats of their own; chats are never shared
+- For an answer: `projects::Context` on the `Job`. Instructions (only when
+  `allowUserSystemPrompt`) and text files go into the system prompt, images and PDFs in front of
+  the first message of every request (also after a summary), for models with vision
+- Claude Code: instructions over 60 kB go through `--append-system-prompt-file`; a new session
+  gets the project's images and PDFs, a resumed one has them (files added later reach it only
+  with a new session)
+- The size of the system prompt counts toward the point where a conversation is summarized
+- Web: `/projects`, `/projects/{id}`, project chip and picker in a chat, tag in the chat list.
+  Desktop: project list above the chats, folder remembered per project, `agora-agent ask --project`
+- Verified with the mock model (two users, a group) and in Chromium; not with a real model, and
+  not through Claude Code
+- Open: auditors don't see a project's files from a conversation; no search inside files (all of
+  it is sent each time); the OpenAI-compatible API has no projects
+
 ### Next
 - Desktop review, server side: a device token is a full account credential (can approve another
   device, create API tokens, use admin routes): restrict what `agd_` tokens may call; group and

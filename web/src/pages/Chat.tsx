@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { useLocation, useNavigate, useParams } from 'react-router-dom'
+import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   ArrowUp,
@@ -18,16 +18,19 @@ import {
   RefreshCw,
   Search,
   Shrink,
+  FolderKanban,
   SlidersHorizontal,
   Square,
   Terminal,
   TriangleAlert,
 } from 'lucide-react'
-import { api, ApiError, num, plural, streamEvents, usd, type Chat, type ConnectorInfo, type Me, type Message, type ModelInfo, type Part, type StreamEvent, type ToolPart, type AttachmentIn } from '../api'
+import { api, ApiError, num, plural, streamEvents, usd, type Chat, type ConnectorInfo, type Me, type Message, type ModelInfo, type Part, type ProjectSummary, type StreamEvent, type ToolPart, type AttachmentIn } from '../api'
 import { CopyButton, Dialog, hostOf, Markdown } from '../ui'
 
 interface ChatData {
   chat: Chat
+  /** the name of the chat's project */
+  project: string | null
   messages: Message[]
   live: string[]
 }
@@ -79,6 +82,13 @@ export function ChatPage({ me }: { me: Me }) {
   const [streamingId, setStreamingId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [showSettings, setShowSettings] = useState(false)
+  // the project: of the chat, or the one a new chat is started in (`/?project=…`)
+  const [search, setSearch] = useSearchParams()
+  const [chatProject, setChatProject] = useState<string | null>(null)
+  const projectId = id ? chatProject : search.get('project')
+  const projects = useQuery({ queryKey: ['projects'], queryFn: () => api.get<ProjectSummary[]>('/projects'), staleTime: 30_000 })
+  const projectName = projects.data?.find((p) => p.id === projectId)?.name ?? (id && projectId === data.data?.chat.projectId ? data.data?.project : null)
+  const [pickProject, setPickProject] = useState(false)
   const loadedFor = useRef<string | null>(null)
 
   // load the chat into local state (once per chat)
@@ -94,6 +104,7 @@ export function ChatPage({ me }: { me: Me }) {
     setKnowledge(c.settings.knowledge ?? null)
     setEffort(c.settings.effort ?? null)
     setSystemPrompt(c.systemPrompt ?? '')
+    setChatProject(c.projectId)
     for (const live of data.data.live) follow(live)
   }, [data.data]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -173,7 +184,7 @@ export function ChatPage({ me }: { me: Me }) {
     const body = { content, parentId, attachments, modelId: model.id, webSearch: webSearch && model.webSearch, knowledge: useKnowledge, effort: effortShown ? effort : null }
     if (!id) {
       try {
-        const chat = await api.post<Chat>('/chats', { modelId: model.id, systemPrompt: systemPrompt || null, settings: { webSearch, knowledge: useKnowledge, effort } })
+        const chat = await api.post<Chat>('/chats', { modelId: model.id, systemPrompt: systemPrompt || null, projectId, settings: { webSearch, knowledge: useKnowledge, effort } })
         qc.invalidateQueries({ queryKey: ['chats'] })
         pendingFiles = files
         navigate(`/c/${chat.id}`, { state: { pending: { content, modelId: model.id, webSearch: body.webSearch, knowledge: useKnowledge, effort: body.effort } satisfies Pending } })
@@ -260,6 +271,20 @@ export function ChatPage({ me }: { me: Me }) {
           if (id) api.patch(`/chats/${id}`, { modelId: m.id }).catch(() => {})
         }} />
         <div className="grow chat-title" title={title}>{id ? title : ''}</div>
+        {projectId && projectName ? (
+          <span className="project-chip">
+            <Link to={`/projects/${projectId}`} title="Open the project">
+              <FolderKanban size={14} /> {projectName}
+            </Link>
+            <button title="Move to another project, or out of this one" aria-label="Change the project" onClick={() => setPickProject(true)}>⋯</button>
+          </span>
+        ) : (
+          !!projects.data?.length && (
+            <button className="icon-btn" title="Put this chat in a project" aria-label="Put this chat in a project" onClick={() => setPickProject(true)}>
+              <FolderKanban size={17} />
+            </button>
+          )
+        )}
         {me.allowUserSystemPrompt && (
           <button className={`icon-btn`} title="Chat instructions" aria-label="Chat instructions" onClick={() => setShowSettings(true)}>
             <SlidersHorizontal size={17} />
@@ -269,7 +294,8 @@ export function ChatPage({ me }: { me: Me }) {
       {path.length === 0 && !id ? (
         <div className="empty-state">
           <div className="inner">
-            <h1>How can I help, {me.user!.name.split(' ')[0]}?</h1>
+            <h1 style={projectName ? { marginBottom: 6 } : undefined}>How can I help, {me.user!.name.split(' ')[0]}?</h1>
+            {projectName && <p className="muted" style={{ margin: '0 0 18px' }}>A new chat in the project <Link to={`/projects/${projectId}`}>{projectName}</Link>, with its instructions and files.</p>}
             <Composer
               me={me}
               model={model}
@@ -356,6 +382,24 @@ export function ChatPage({ me }: { me: Me }) {
             />
           </div>
         </>
+      )}
+      {pickProject && (
+        <ProjectPicker
+          projects={projects.data ?? []}
+          current={projectId}
+          onClose={() => setPickProject(false)}
+          onPick={(p) => {
+            setPickProject(false)
+            if (!id) return setSearch(p ? { project: p } : {}, { replace: true })
+            api.patch(`/chats/${id}`, { projectId: p })
+              .then(() => {
+                setChatProject(p)
+                qc.invalidateQueries({ queryKey: ['chats'] })
+                qc.invalidateQueries({ queryKey: ['projects'] })
+              })
+              .catch((e) => setError(e instanceof Error ? e.message : String(e)))
+          }}
+        />
       )}
       {showSettings && (
         <ChatSettings
@@ -847,6 +891,27 @@ function PartView({ p, live }: { p: Part; live: boolean }) {
       </a>
       {p.status === 'error' && <span className="error-text">{p.error}</span>}
     </div>
+  )
+}
+
+function ProjectPicker({ projects, current, onClose, onPick }: { projects: ProjectSummary[]; current: string | null; onClose: () => void; onPick: (id: string | null) => void }) {
+  return (
+    <Dialog title="Project of this chat" onClose={onClose}>
+      <p className="muted" style={{ marginTop: 0 }}>A chat in a project is answered with the project's instructions and files, from the next message on.</p>
+      <div className="pick-list">
+        <button className={current ? '' : 'on'} onClick={() => onPick(null)}>No project</button>
+        {projects.map((p) => (
+          <button key={p.id} className={p.id === current ? 'on' : ''} onClick={() => onPick(p.id)}>
+            <FolderKanban size={15} /> {p.name}
+            {!p.mine && <span className="faint"> · shared by {p.owner}</span>}
+          </button>
+        ))}
+      </div>
+      <div className="actions">
+        <Link to="/projects" className="btn" onClick={onClose}>Manage projects</Link>
+        <button className="btn" onClick={onClose}>Close</button>
+      </div>
+    </Dialog>
   )
 }
 

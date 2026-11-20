@@ -195,7 +195,7 @@ export function Access() {
       </Section>
       <Section title="What people are told">
         <p style={{ marginBottom: 0 }}>
-          Under <Link to="/admin/settings">Settings</Link>: instructions that every model gets, a notice shown under the message box (for example what must not be entered), and whether people may give a chat instructions of their own.
+          Under <Link to="/admin/settings">Settings</Link>: instructions that every model gets, a notice shown under the message box (for example what must not be entered), and whether people may give a chat instructions of their own. The same switch decides whether the instructions of people's projects reach the model; a project's files always do.
         </p>
       </Section>
     </>
@@ -260,6 +260,7 @@ export function Audit() {
         <ul>
           <li>The <b>auditor</b> role reads the audit log, usage and conversations and changes nothing. Opening someone's conversation is itself an audit event.</li>
           <li>A chat its owner deletes disappears for them and stays available to auditors for the retention period you set.</li>
+          <li>Projects leave events too: made, changed, shared (with whom), files added and removed, deleted. An auditor who opens a conversation sees the conversation, not the project's files the model was given with it.</li>
           <li>Retention of chats and of audit events is set under <Link to="/admin/settings">Settings</Link>.</li>
         </ul>
       </Section>

@@ -1,7 +1,7 @@
 import { useMemo, useState, type ReactNode } from 'react'
 import { Link, NavLink, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { CircleHelp, LogOut, Menu, MessageSquarePlus, Pencil, Pin, PinOff, Search, Settings, Shield, Trash2 } from 'lucide-react'
+import { CircleHelp, FolderKanban, LogOut, Menu, MessageSquarePlus, Pencil, Pin, PinOff, Search, Settings, Shield, Trash2 } from 'lucide-react'
 import { api, canAudit, type ChatSummary, type Me } from '../api'
 import { Avatar } from '../ui'
 
@@ -57,6 +57,9 @@ export function Layout({ me, children }: { me: Me; children: ReactNode }) {
           <Link to="/" className="btn" style={{ justifyContent: 'flex-start' }}>
             <MessageSquarePlus size={16} /> New chat
           </Link>
+          <NavLink to="/projects" className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}>
+            <FolderKanban size={16} /> Projects
+          </NavLink>
           <div className="sidebar-search">
             <Search size={15} />
             <input className="input" placeholder="Search chats" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search chats" />
@@ -155,6 +158,7 @@ function ChatItem({ chat }: { chat: ChatSummary }) {
   return (
     <Link to={`/c/${chat.id}`} className={`chat-item${active ? ' active' : ''}`} aria-current={active ? 'page' : undefined}>
       <span className="title">{chat.title}</span>
+      {chat.project && <span className="project-tag" title={`In the project ${chat.project}`}>{chat.project}</span>}
       <span className="actions" onClick={(e) => e.preventDefault()}>
         <button className="icon-btn" title={chat.pinned ? 'Unpin' : 'Pin'} aria-label={chat.pinned ? 'Unpin' : 'Pin'} onClick={() => update.mutate({ pinned: !chat.pinned })}>
           {chat.pinned ? <PinOff size={14} /> : <Pin size={14} />}

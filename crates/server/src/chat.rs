@@ -144,6 +144,8 @@ pub struct Job {
     /// let the model search the person's connected knowledge sources
     pub knowledge: bool,
     pub chat_system: Option<String>,
+    /// the chat's project: its instructions and files
+    pub project: Option<crate::routes::projects::Context>,
     pub effort: Option<String>,
     /// write a title after this answer
     pub title_after: bool,
@@ -414,6 +416,23 @@ async fn history(state: &AppState, leaf: Uuid) -> anyhow::Result<Vec<Msg>> {
     Ok(out)
 }
 
+/// The conversation as the model gets it: the project's images and PDFs come with its first message
+/// (whatever was summarized away since).
+fn with_project(job: &Job, messages: &[Msg]) -> Vec<Msg> {
+    let mut out = messages.to_vec();
+    let Some(p) = job.project.as_ref().filter(|p| !p.media.is_empty() && job.model.cap("vision")) else {
+        return out;
+    };
+    let files: Vec<Block> = p.media.iter().map(llm::Media::block).collect();
+    match out.first_mut() {
+        Some(Msg::Plain { role: Role::User, content }) => {
+            content.splice(0..0, files);
+        }
+        _ => out.insert(0, Msg::Plain { role: Role::User, content: files }),
+    }
+    out
+}
+
 fn system_prompt(job: &Job, tools: bool, sources: &[crate::connectors::Linked]) -> String {
     let mut parts: Vec<String> = Vec::new();
     if let Some(s) = job.settings.system_prompt.as_deref().filter(|s| !s.trim().is_empty()) {
@@ -421,6 +440,9 @@ fn system_prompt(job: &Job, tools: bool, sources: &[crate::connectors::Linked]) 
     }
     if let Some(s) = job.model.param_str("systemPrompt") {
         parts.push(s.trim().to_string());
+    }
+    if let Some(p) = &job.project {
+        parts.push(p.system(job.settings.allow_user_system_prompt, job.model.cap("vision")));
     }
     if let Some(s) = job.chat_system.as_deref().filter(|s| !s.trim().is_empty() && job.settings.allow_user_system_prompt) {
         parts.push(s.trim().to_string());
@@ -558,7 +580,7 @@ async fn run(job: Job, hub: Arc<Hub>, cancel: CancellationToken) {
     let mut compacted: Option<Value> = None;
     if let Some(limit) = limit
         && messages.len() > 2
-        && approx_tokens(&messages) > limit
+        && approx_tokens(&with_project(&job, &messages)) + (req.system.as_deref().map_or(0, str::len) / 3) as i64 > limit
         && let Some(summary) = summarize(&job, &hub, &tooling, &req, &messages[..messages.len() - 1]).await
     {
         let question = match messages.last() {
@@ -594,7 +616,7 @@ async fn run(job: Job, hub: Arc<Hub>, cancel: CancellationToken) {
             hub.publish(json!({ "type": "text", "d": "\n\n" }));
             text_so_far.push_str("\n\n");
         }
-        req.messages = messages.clone();
+        req.messages = with_project(&job, &messages);
         let mut native_log: HashMap<String, NativeSearchLog> = HashMap::new();
         let call_start = Instant::now();
         let result = {
@@ -826,7 +848,7 @@ fn run_agent<'a>(job: &'a Job, hub: &'a Hub, call: &'a ToolCall, t: &'a Tooling<
         let mut steps = 0usize;
         let mut answer = String::new();
         for _ in 0..(t.agent_calls + 4) {
-            req.messages = messages.clone();
+            req.messages = with_project(job, &messages);
             let o = match quiet_call(job, t, &req).await {
                 Ok(o) => o,
                 Err(e) => {

@@ -4,6 +4,7 @@ pub mod chats;
 pub mod connectors;
 pub mod desktop;
 pub mod openai_api;
+pub mod projects;
 
 use axum::Router;
 use axum::extract::DefaultBodyLimit;
@@ -37,6 +38,11 @@ pub fn api() -> Router<AppState> {
         .route("/messages/{id}/stream", get(chats::follow))
         .route("/messages/{id}/stop", post(chats::stop))
         .route("/attachments/{id}", get(chats::attachment))
+        // projects: chats that belong together, with instructions and files
+        .route("/projects", get(projects::list).post(projects::create))
+        .route("/projects/{id}", get(projects::get).patch(projects::update).delete(projects::delete))
+        .route("/projects/{id}/files", post(projects::add_file))
+        .route("/projects/{id}/files/{file}", get(projects::file).delete(projects::delete_file))
         // Claude Code's way to Agora's tools while it writes an answer (the token is the credential)
         .route("/mcp/{token}", post(crate::chat::mcp_endpoint))
         // knowledge sources (RAG)

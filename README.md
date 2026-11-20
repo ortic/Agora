@@ -27,6 +27,7 @@ when they roll such a tool out.
 - Edit a message or regenerate an answer: each becomes a branch you can flip through (‹ 1 / 2 ›)
 - Answers keep being written when you close the tab; reopen the chat and it picks up the stream; *Stop* at any time
 - Chat list with search, pinning, renaming and automatic titles; per-chat instructions; light and dark theme; works on phones
+- **Projects**: chats that belong together, with instructions and files (text, images, PDFs) the model gets with every message; private, or shared with everyone or with groups (the others start chats of their own in it)
 - **Images and PDFs** attached to a message (button, drop or paste), for models that read them
 - Tokens, cost and time under every answer
 

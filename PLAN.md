@@ -97,6 +97,7 @@ browser ── /api (JSON, SSE) ──► agora (axum)
 - [x] P0 Reasoning display (Claude summarized thinking, `<think>` of local models)
 - [x] P0 Web search toggle with sources shown under the answer
 - [x] P0 Per message: tokens, cost, model, duration
+- [x] P1 Projects: chats grouped under a project with instructions and files (text in the system prompt, images and PDFs with the first message); owned by one person, shared with everyone or groups; chats stay each person's own
 - [ ] P1 File attachments: images (vision), text/code files, PDF
 - [x] P1 Knowledge from WikiCraft: per-user read-only tokens, `/api/retrieve` as a model tool, cited sources, every search logged
 - [ ] P1 TaskCraft as a knowledge source (location / API to be confirmed)

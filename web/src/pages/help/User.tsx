@@ -21,6 +21,18 @@ export function Chatting({ me }: { me: Me }) {
           <li><b>Regenerate</b> under an answer asks again, with the same or another model. That is a branch too.</li>
         </ul>
       </Section>
+      <Section title="Projects">
+        <p>
+          A <Link to="/projects">project</Link> keeps chats together that are about the same thing, and gives the model the background once instead of in every chat.
+        </p>
+        <ul>
+          {me.allowUserSystemPrompt && <li><b>Instructions:</b> what the model should know and do in every chat of the project.</li>}
+          <li><b>Files:</b> text files of any kind (Markdown, CSV, code), images and PDFs. The model gets all of them with every message in the project, so large files make every answer cost more. A project holds up to 400,000 characters of text and 20 MB of images and PDFs.</li>
+          <li><b>Chats:</b> start one with <b>New chat in this project</b> on the project's page. The folder icon above a conversation moves a chat into a project or out of it; the project applies from the next message on.</li>
+          <li><b>Sharing:</b> a project is yours alone until you share it with everyone or with groups you are in. The others can read its instructions and files and start chats of their own in it. Nobody sees another person's chats, and only you can change the project.</li>
+          <li>Deleting a project removes its instructions and files. Its chats stay, without the project.</li>
+        </ul>
+      </Section>
       <Section title="What a message can carry">
         <ul>
           <li><b>Images and PDFs:</b> the Attach button, or drop or paste them into the message box. Up to 8 files, images up to 5 MB, 20 MB per message. The button is off for models that can't read them.</li>
@@ -71,6 +83,7 @@ export function DesktopApp({ me }: { me: Me }) {
           <li><b>Undo:</b> "Undo file changes" under an answer puts the files it wrote or edited back as they were. What commands changed is not covered: use git for that.</li>
           <li><b>Instructions for the model:</b> <code>AGENTS.md</code> (or <code>CLAUDE.md</code>) at the project root is given to the model with every message. Your own instructions for every project go in <code>instructions.md</code> in the app's settings folder.</li>
           <li><b>Notes that last:</b> the model keeps what is worth knowing next time in <code>.agora/memory.md</code> in the project. It is an ordinary file: read it, correct it, commit it or ignore it.</li>
+          <li><b>Projects:</b> the list above the chats chooses a project. Its chats are shown, new chats go into it, and the folder you had open with it is opened again when you choose it. Projects are made and changed here in the web app.</li>
           <li><b>Long commands:</b> the model gets a command's output while it runs and can start servers and watchers in the background. You see the output in the chat as it is printed.</li>
         </ul>
       </Section>
@@ -101,6 +114,7 @@ export function DesktopApp({ me }: { me: Me }) {
         <Code>{`agora-agent login ${serverAddress()}
 agora-agent ask --workspace ~/work/project --yes "Run the tests and fix what fails"
 agora-agent ask --attach error.png "What does this dialog mean?"
+agora-agent ask --project "Website relaunch" "Draft the launch mail"
 agora-agent undo --workspace ~/work/project
 agora-agent serve          # stay connected for chats started elsewhere`}</Code>
         <p style={{ marginBottom: 0 }}>Without <code>--yes</code>, anything that needs your confirmation is declined.</p>

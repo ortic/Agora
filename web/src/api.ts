@@ -130,6 +130,42 @@ export interface ChatSummary {
   pinned: boolean
   modelId: string | null
   updatedAt: string
+  projectId: string | null
+  /** the project's name */
+  project: string | null
+}
+
+export interface ProjectSummary {
+  id: string
+  name: string
+  description: string
+  access: 'private' | 'everyone' | 'groups'
+  updatedAt: string
+  /** made by the person asking (only they can change it) */
+  mine: boolean
+  owner: string
+  /** the person's own chats in it */
+  chats: number
+  files: number
+}
+
+export interface ProjectFile {
+  id: string
+  name: string
+  mediaType: string
+  size: number
+  /** text files: their length; images and PDFs: null */
+  chars: number | null
+  createdAt: string
+}
+
+export interface Project extends Omit<ProjectSummary, 'chats' | 'files'> {
+  instructions: string
+  files: ProjectFile[]
+  limits: { files: number; textChars: number; mediaBytes: number }
+  /** for its owner: who it is shared with, and the groups they can choose */
+  groupIds?: string[]
+  groups?: { id: string; name: string }[]
 }
 
 export interface Chat {
@@ -138,6 +174,7 @@ export interface Chat {
   title: string
   modelId: string | null
   systemPrompt: string | null
+  projectId: string | null
   settings: { webSearch?: boolean; knowledge?: boolean; effort?: string }
   leafId: string | null
   pinned: boolean

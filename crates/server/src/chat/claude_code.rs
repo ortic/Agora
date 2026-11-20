@@ -280,10 +280,16 @@ pub(super) async fn run(job: Job, hub: Arc<Hub>, cancel: CancellationToken) {
         // a session that is gone (another server, cleaned up) is replaced by a new one that is told the conversation
         for session in [resume.as_deref(), None].into_iter().take(if resume.is_some() { 2 } else { 1 }) {
             let mut content = question.clone();
-            if session.is_none()
-                && let Some(t) = transcript(earlier)
-            {
-                content.insert(0, json!({ "type": "text", "text": t }));
+            if session.is_none() {
+                if let Some(t) = transcript(earlier) {
+                    content.insert(0, json!({ "type": "text", "text": t }));
+                }
+                // a new session is given the project's images and PDFs; a resumed one has them
+                if let Some(p) = job.project.as_ref().filter(|p| !p.media.is_empty() && job.model.cap("vision")) {
+                    let files = [Msg::Plain { role: llm::Role::User, content: p.media.iter().map(llm::Media::block).collect() }];
+                    let blocks = llm::anthropic::messages_json(&files).first().and_then(|m| m["content"].as_array().cloned()).unwrap_or_default();
+                    content.splice(0..0, blocks);
+                }
             }
             let spec =
                 Spec { dir: &dir, token: &token, system: &system, session, content, subagents, tool_secs, has_tools: !run.tools.is_empty(), budget_left };
@@ -294,6 +300,7 @@ pub(super) async fn run(job: Job, hub: Arc<Hub>, cancel: CancellationToken) {
         }
     }
     state.mcp_runs.remove(&token);
+    let _ = tokio::fs::remove_file(dir.join(format!(".system-{}.md", job.assistant_msg))).await;
 
     let cost = crate::usage::record_reported(
         &state,
@@ -365,8 +372,19 @@ async fn claude(job: &Job, hub: &Hub, ep: &llm::Endpoint, cancel: &CancellationT
         .args(["--permission-prompts", "none"])
         // nothing of the server account's own Claude Code setup: its settings, hooks, commands
         .args(["--setting-sources", "", "--disable-slash-commands"])
-        .args(["--system-prompt-snapshot", "off", "--append-system-prompt", spec.system])
+        .args(["--system-prompt-snapshot", "off"])
         .args(["--model", &job.model.model]);
+    // one argument holds about 128 KB: longer instructions (a project's files) go through a file
+    let system_file = spec.dir.join(format!(".system-{}.md", job.assistant_msg));
+    if spec.system.len() > 60_000 {
+        if let Err(e) = tokio::fs::write(&system_file, spec.system).await {
+            ran.error = Some(format!("couldn't write the instructions for Claude Code: {e}"));
+            return ran;
+        }
+        cmd.arg("--append-system-prompt-file").arg(&system_file);
+    } else {
+        cmd.args(["--append-system-prompt", spec.system]);
+    }
     if let Some(s) = spec.session {
         cmd.args(["--resume", s, "--fork-session"]);
     }
