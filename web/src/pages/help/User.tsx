@@ -83,7 +83,7 @@ export function DesktopApp({ me }: { me: Me }) {
           <li><b>Undo:</b> "Undo file changes" under an answer puts the files it wrote or edited back as they were. What commands changed is not covered: use git for that.</li>
           <li><b>Instructions for the model:</b> <code>AGENTS.md</code> (or <code>CLAUDE.md</code>) at the project root is given to the model with every message. Your own instructions for every project go in <code>instructions.md</code> in the app's settings folder.</li>
           <li><b>Notes that last:</b> the model keeps what is worth knowing next time in <code>.agora/memory.md</code> in the project. It is an ordinary file: read it, correct it, commit it or ignore it.</li>
-          <li><b>Projects:</b> the list above the chats chooses a project. Its chats are shown, new chats go into it, and the folder you had open with it is opened again when you choose it. Projects are made and changed here in the web app.</li>
+          <li><b>Projects:</b> the list above the chats chooses a project. Its chats are shown, new chats go into it, and the folder you had open with it is opened again when you choose it. <b>New project…</b> in that list makes one, with its instructions and files; sharing it and changing it later happens here in the web app.</li>
           <li><b>Long commands:</b> the model gets a command's output while it runs and can start servers and watchers in the background. You see the output in the chat as it is printed.</li>
         </ul>
       </Section>
