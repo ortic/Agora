@@ -32,13 +32,13 @@ interface DesktopAdminData {
   devices: Device[]
 }
 
-interface Group {
+export interface Group {
   id: string
   name: string
 }
 
-const lines = (s: string) => s.split('\n').map((l) => l.trim()).filter(Boolean)
-const useGroups = () => useQuery({ queryKey: ['admin-groups'], queryFn: () => api.get<Group[]>('/admin/groups') })
+export const lines = (s: string) => s.split('\n').map((l) => l.trim()).filter(Boolean)
+export const useGroups = () => useQuery({ queryKey: ['admin-groups'], queryFn: () => api.get<Group[]>('/admin/groups') })
 
 /** Admin → Desktop: what Agora Desktop may do on people's computers, and for whom. */
 export function DesktopAdmin({ admin }: { admin: boolean }) {
@@ -122,7 +122,7 @@ export function DesktopAdmin({ admin }: { admin: boolean }) {
   )
 }
 
-function AccessPicker<A extends string>(props: {
+export function AccessPicker<A extends string>(props: {
   name: string
   access: A
   options: [A, string][]
@@ -365,9 +365,9 @@ function FeatureCard({ k, title, about, feature, groups }: { k: FeatureKey; titl
   )
 }
 
-const pairs = (o: Record<string, string> | undefined, sep: string) => Object.entries(o ?? {}).map(([k, v]) => `${k}${sep}${v}`).join('\n')
+export const pairs = (o: Record<string, string> | undefined, sep: string) => Object.entries(o ?? {}).map(([k, v]) => `${k}${sep}${v}`).join('\n')
 
-function parsePairs(s: string, sep: string): Record<string, string> {
+export function parsePairs(s: string, sep: string): Record<string, string> {
   const out: Record<string, string> = {}
   for (const l of lines(s)) {
     const i = l.indexOf(sep)
@@ -534,7 +534,7 @@ interface ToolEvent {
   user: string | null
   chatId: string | null
   device: string | null
-  feature: 'code' | 'browser' | 'connector'
+  feature: 'code' | 'browser' | 'connector' | 'mcp'
   connector: string | null
   tool: string
   input: Record<string, unknown>
@@ -553,8 +553,10 @@ function gist(e: ToolEvent): string {
   return s === '{}' ? '' : s
 }
 
-function ToolActivity() {
-  const [feature, setFeature] = useState('')
+/** The log of tool calls; `only`: of one feature, without the choice (the MCP servers' page). */
+export function ToolActivity({ only }: { only?: 'mcp' } = {}) {
+  const [chosen, setFeature] = useState('')
+  const feature = only ?? chosen
   const [q, setQ] = useState('')
   const [open, setOpen] = useState<string | null>(null)
   const params = new URLSearchParams()
@@ -569,14 +571,21 @@ function ToolActivity() {
   const rows = events.data?.pages.flatMap((p) => p.events) ?? []
   return (
     <>
-      <p className="muted" style={{ marginTop: 0 }}>Every tool a model ran on someone's computer: for whom, on which device, with what input, and how it ended.</p>
+      <p className="muted" style={{ marginTop: 0 }}>
+        {only
+          ? 'Every tool of an MCP server a model called: for whom, with what input, and how it ended.'
+          : "Every tool a model ran on someone's computer or through an MCP server: for whom, on which device, with what input, and how it ended."}
+      </p>
       <div className="row" style={{ marginBottom: 12 }}>
-        <select className="input" style={{ width: 'auto' }} value={feature} onChange={(e) => setFeature(e.target.value)} aria-label="Feature">
-          <option value="">Everything</option>
-          <option value="code">Code (dev containers)</option>
-          <option value="browser">Browser</option>
-          <option value="connector">Local connectors</option>
-        </select>
+        {!only && (
+          <select className="input" style={{ width: 'auto' }} value={feature} onChange={(e) => setFeature(e.target.value)} aria-label="Feature">
+            <option value="">Everything</option>
+            <option value="code">Code (dev containers)</option>
+            <option value="browser">Browser</option>
+            <option value="connector">Local connectors</option>
+            <option value="mcp">MCP servers</option>
+          </select>
+        )}
         <input className="input" style={{ maxWidth: 320 }} placeholder="Search tools, commands, paths, URLs" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search" />
       </div>
       <ErrorText error={events.error} />
@@ -589,7 +598,7 @@ function ToolActivity() {
                 <tr className="clickable" onClick={() => setOpen(open === e.id ? null : e.id)}>
                   <td style={{ whiteSpace: 'nowrap' }}>{when(e.at)}</td>
                   <td>{e.user ?? '—'}</td>
-                  <td>{e.device ?? '—'}</td>
+                  <td>{e.device ?? (e.feature === 'mcp' ? <span className="faint">the server</span> : '—')}</td>
                   <td style={{ whiteSpace: 'nowrap' }}><span className="badge">{e.connector ?? e.feature}</span> <span className="mono">{e.tool}</span></td>
                   <td className="mono" style={{ maxWidth: 380, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{gist(e)}</td>
                   <td style={{ whiteSpace: 'nowrap' }}>

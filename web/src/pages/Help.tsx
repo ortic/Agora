@@ -2,7 +2,7 @@ import type { ReactNode } from 'react'
 import { NavLink, Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { Printer } from 'lucide-react'
 import { canAdmin, canAudit, type Me } from '../api'
-import { Access, Audit, DesktopAdmin, Server, SignIn, Sources } from './help/Admin'
+import { Access, Audit, DesktopAdmin, McpServers, Server, SignIn, Sources } from './help/Admin'
 import { Models } from './help/Models'
 import { Overview } from './help/Overview'
 import { serverAddress } from './help/parts'
@@ -28,6 +28,7 @@ export function HelpPage({ me }: { me: Me }) {
     { slug: 'sign-in', title: 'Accounts and single sign-on', admin: true, body: <SignIn /> },
     { slug: 'access', title: 'Groups, access and budgets', admin: true, body: <Access /> },
     { slug: 'sources', title: 'Web search and knowledge', admin: true, body: <Sources /> },
+    { slug: 'mcp', title: 'Tools of your services (MCP)', admin: true, body: <McpServers /> },
     { slug: 'audit', title: 'Audit and retention', admin: true, body: <Audit /> },
     { slug: 'desktop', title: 'Agora Desktop: grants and control', admin: true, body: <DesktopAdmin /> },
     { slug: 'server', title: 'Running the server', admin: true, body: <Server /> },

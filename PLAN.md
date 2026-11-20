@@ -105,7 +105,7 @@ browser ── /api (JSON, SSE) ──► agora (axum)
 - [ ] P1 Prompt library with variables `L` `W`
 - [ ] P1 Share a chat read-only with colleagues (audited) `L` `W`
 - [ ] P1 Export chat (Markdown / JSON)
-- [ ] P2 MCP servers as tools (admin-approved) `L` `W`
+- [x] P2 MCP servers as tools (admin-approved): `mcp_servers` (URL or program on the server), encrypted credentials, tool allow-list, ask/auto with Allow/Decline in the chat, access per group, `tool_events` + audit `L` `W`
 - [ ] P2 Artifacts / HTML preview `L`
 - [ ] P3 Arena / side-by-side comparison `W`
 

@@ -23,8 +23,9 @@ import {
   Square,
   Terminal,
   TriangleAlert,
+  Wrench,
 } from 'lucide-react'
-import { api, ApiError, num, plural, streamEvents, usd, type Chat, type ConnectorInfo, type Me, type Message, type ModelInfo, type Part, type ProjectSummary, type StreamEvent, type ToolPart, type AttachmentIn } from '../api'
+import { api, ApiError, num, plural, streamEvents, usd, type Chat, type ConnectorInfo, type McpServerInfo, type Me, type Message, type ModelInfo, type Part, type ProjectSummary, type StreamEvent, type ToolPart, type AttachmentIn } from '../api'
 import { CopyButton, Dialog, hostOf, Markdown } from '../ui'
 
 interface ChatData {
@@ -56,6 +57,7 @@ interface Pending {
   modelId: string
   webSearch: boolean
   knowledge: boolean
+  mcp: boolean
   effort: string | null
 }
 
@@ -77,6 +79,9 @@ export function ChatPage({ me }: { me: Me }) {
   const connectors = useQuery({ queryKey: ['connectors'], queryFn: () => api.get<ConnectorInfo[]>('/connectors'), staleTime: 60_000 })
   const sources = (connectors.data ?? []).filter((c) => c.connected)
   const [knowledge, setKnowledge] = useState<boolean | null>(null)
+  const mcpServers = useQuery({ queryKey: ['mcp-servers'], queryFn: () => api.get<McpServerInfo[]>('/mcp-servers'), staleTime: 60_000 })
+  const servers = mcpServers.data ?? []
+  const [mcpOn, setMcpOn] = useState<boolean | null>(null)
   const [effort, setEffort] = useState<string | null>(null)
   const [systemPrompt, setSystemPrompt] = useState<string>('')
   const [streamingId, setStreamingId] = useState<string | null>(null)
@@ -102,6 +107,7 @@ export function ChatPage({ me }: { me: Me }) {
     setModelId(c.modelId)
     setWebSearch(!!c.settings.webSearch)
     setKnowledge(c.settings.knowledge ?? null)
+    setMcpOn(c.settings.mcp ?? null)
     setEffort(c.settings.effort ?? null)
     setSystemPrompt(c.systemPrompt ?? '')
     setChatProject(c.projectId)
@@ -113,6 +119,7 @@ export function ChatPage({ me }: { me: Me }) {
   const effortShown = model?.kind === 'anthropic' && model.reasoning
   // on by default once something is connected
   const useKnowledge = sources.length > 0 && !!model?.tools && (knowledge ?? true)
+  const useMcp = servers.length > 0 && !!model?.tools && (mcpOn ?? true)
 
   const applyEvent = useCallback((ev: StreamEvent, targetId: { current: string | null }) => {
     if (ev.type === 'start') {
@@ -181,13 +188,13 @@ export function ChatPage({ me }: { me: Me }) {
   async function send(content: string, parentId: string | null, files: AttachmentIn[] = []) {
     if (!model) return setError('No model is available to you yet. Ask an administrator to connect one.')
     const attachments = files.map(({ name, mediaType, data }) => ({ name, mediaType, data }))
-    const body = { content, parentId, attachments, modelId: model.id, webSearch: webSearch && model.webSearch, knowledge: useKnowledge, effort: effortShown ? effort : null }
+    const body = { content, parentId, attachments, modelId: model.id, webSearch: webSearch && model.webSearch, knowledge: useKnowledge, mcp: useMcp, effort: effortShown ? effort : null }
     if (!id) {
       try {
-        const chat = await api.post<Chat>('/chats', { modelId: model.id, systemPrompt: systemPrompt || null, projectId, settings: { webSearch, knowledge: useKnowledge, effort } })
+        const chat = await api.post<Chat>('/chats', { modelId: model.id, systemPrompt: systemPrompt || null, projectId, settings: { webSearch, knowledge: useKnowledge, mcp: useMcp, effort } })
         qc.invalidateQueries({ queryKey: ['chats'] })
         pendingFiles = files
-        navigate(`/c/${chat.id}`, { state: { pending: { content, modelId: model.id, webSearch: body.webSearch, knowledge: useKnowledge, effort: body.effort } satisfies Pending } })
+        navigate(`/c/${chat.id}`, { state: { pending: { content, modelId: model.id, webSearch: body.webSearch, knowledge: useKnowledge, mcp: useMcp, effort: body.effort } satisfies Pending } })
       } catch (e) {
         setError(e instanceof Error ? e.message : String(e))
       }
@@ -208,7 +215,7 @@ export function ChatPage({ me }: { me: Me }) {
 
   async function regenerate(assistant: Message) {
     if (!id || !assistant.parentId) return
-    await run(`/chats/${id}/regenerate`, { messageId: assistant.parentId, modelId: model?.id, webSearch: webSearch && model?.webSearch, knowledge: useKnowledge, effort: effortShown ? effort : null })
+    await run(`/chats/${id}/regenerate`, { messageId: assistant.parentId, modelId: model?.id, webSearch: webSearch && model?.webSearch, knowledge: useKnowledge, mcp: useMcp, effort: effortShown ? effort : null })
   }
 
   function stop() {
@@ -304,6 +311,9 @@ export function ChatPage({ me }: { me: Me }) {
               sources={sources.map((c) => c.name)}
               knowledge={useKnowledge}
               setKnowledge={(b) => setKnowledge(b)}
+              servers={servers.map((s) => s.name)}
+              mcp={useMcp}
+              setMcp={(b) => setMcpOn(b)}
               effort={effort}
               setEffort={setEffort}
               effortShown={!!effortShown}
@@ -370,6 +380,9 @@ export function ChatPage({ me }: { me: Me }) {
               sources={sources.map((c) => c.name)}
               knowledge={useKnowledge}
               setKnowledge={(b) => setKnowledge(b)}
+              servers={servers.map((s) => s.name)}
+              mcp={useMcp}
+              setMcp={(b) => setMcpOn(b)}
               effort={effort}
               setEffort={setEffort}
               effortShown={!!effortShown}
@@ -471,6 +484,9 @@ function Composer(props: {
   sources: string[]
   knowledge: boolean
   setKnowledge: (b: boolean) => void
+  servers: string[]
+  mcp: boolean
+  setMcp: (b: boolean) => void
   effort: string | null
   setEffort: (e: string | null) => void
   effortShown: boolean
@@ -593,6 +609,17 @@ function Composer(props: {
               onClick={() => props.setKnowledge(!props.knowledge)}
             >
               <BookOpen size={14} /> {props.sources.length === 1 ? props.sources[0] : 'Knowledge'}
+            </button>
+          )}
+          {props.servers.length > 0 && (
+            <button
+              className={`toggle${props.mcp ? ' on' : ''}`}
+              disabled={!props.model?.tools}
+              title={props.model?.tools ? `Let the model use the tools of ${props.servers.join(', ')} (calls are logged)` : "This model can't use tools"}
+              aria-pressed={props.mcp}
+              onClick={() => props.setMcp(!props.mcp)}
+            >
+              <Wrench size={14} /> {props.servers.length === 1 ? props.servers[0] : 'Tools'}
             </button>
           )}
           {props.effortShown && (
@@ -753,7 +780,7 @@ const str = (v: unknown) => (typeof v === 'string' ? v : v == null ? '' : JSON.s
 /** One line saying what a tool call on the person's computer does. */
 function toolSummary(p: ToolPart): { verb: string; what: string; mono: boolean } {
   const i = p.input ?? {}
-  switch (p.feature === 'connector' ? '' : p.tool) {
+  switch (p.feature === 'connector' || p.feature === 'mcp' ? '' : p.tool) {
     case 'run_command': return { verb: 'Run', what: str(i.command), mono: true }
     case 'read_file': return { verb: 'Read', what: str(i.path), mono: true }
     case 'write_file': return { verb: 'Write', what: str(i.path), mono: true }
@@ -769,17 +796,40 @@ function toolSummary(p: ToolPart): { verb: string; what: string; mono: boolean }
   }
 }
 
-const TOOL_STATUS: Record<string, string> = { denied: 'declined', blocked: 'blocked by policy', timeout: 'timed out', error: 'failed' }
+const TOOL_STATUS: Record<string, string> = { denied: 'declined', blocked: 'blocked by policy', timeout: 'timed out', error: 'failed', asking: 'waiting for you' }
 
-/** A tool call on the person's computer (Agora Desktop): what it did, and its output when opened. */
+/** Allow / Decline for a call that waits for the person. */
+function Decide({ id }: { id: string }) {
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const decide = (allow: boolean) => {
+    setBusy(true)
+    setError(null)
+    api.post(`/tool-calls/${id}/decision`, { allow }).catch((e) => {
+      setBusy(false)
+      setError(e instanceof Error ? e.message : String(e))
+    })
+  }
+  return (
+    <div className="row" style={{ gap: 8 }}>
+      <span className="muted grow" style={{ fontSize: 13 }}>The model wants to run this. Allow it?</span>
+      <button className="btn small" disabled={busy} onClick={() => decide(false)}>Decline</button>
+      <button className="btn small primary" disabled={busy} onClick={() => decide(true)}>Allow</button>
+      {error && <span className="error-text" style={{ fontSize: 13 }}>{error}</span>}
+    </div>
+  )
+}
+
+/** A tool call (on the person's computer through Agora Desktop, or of an MCP server): what it did, and its output when opened. */
 export function ToolPartView({ p }: { p: ToolPart }) {
-  const Icon = p.feature === 'code' ? Terminal : p.feature === 'browser' ? Globe : Plug
+  const Icon = p.feature === 'code' ? Terminal : p.feature === 'browser' ? Globe : p.feature === 'mcp' ? Wrench : Plug
   const s = toolSummary(p)
   const i = p.input ?? {}
-  const builtin = p.feature !== 'connector'
+  const builtin = p.feature !== 'connector' && p.feature !== 'mcp'
   const failed = p.status !== 'running' && p.status !== 'done'
+  const asking = p.status === 'asking'
   return (
-    <details className="tool" style={p.agent ? { marginLeft: 18 } : undefined} open={p.status === 'running' && !!p.output ? true : undefined}>
+    <details className="tool" style={p.agent ? { marginLeft: 18 } : undefined} open={asking || (p.status === 'running' && !!p.output) ? true : undefined}>
       <summary>
         {p.status === 'running' ? <span className="spinner" /> : <Icon size={14} />}
         <span>{s.verb}</span>
@@ -788,6 +838,7 @@ export function ToolPartView({ p }: { p: ToolPart }) {
         {failed && <span className={p.status === 'error' || p.status === 'timeout' ? 'error-text' : 'badge warn'}>{TOOL_STATUS[p.status] ?? p.status}</span>}
       </summary>
       <div className="tool-body">
+        {asking && <Decide id={p.id} />}
         {builtin && p.tool === 'run_command' ? (
           <pre>$ {str(i.command)}</pre>
         ) : builtin && p.tool === 'edit_file' ? (

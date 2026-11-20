@@ -260,6 +260,8 @@ pub struct SendRequest {
     model_id: Option<Uuid>,
     web_search: Option<bool>,
     knowledge: Option<bool>,
+    /// the tools of the organization's MCP servers
+    mcp: Option<bool>,
     effort: Option<String>,
     /// from the desktop app: which tools on the person's computer this answer may use
     desktop: Option<crate::desktop::Wanted>,
@@ -416,6 +418,8 @@ pub async fn send(
     chat_settings.insert("webSearch".into(), json!(web));
     let knowledge = req.knowledge.unwrap_or(false);
     chat_settings.insert("knowledge".into(), json!(knowledge));
+    let mcp = req.mcp.unwrap_or(false);
+    chat_settings.insert("mcp".into(), json!(mcp));
     sqlx::query("UPDATE chats SET leaf_id = $2, model_id = $3, settings = $4, updated_at = now() WHERE id = $1")
         .bind(id)
         .bind(assistant_msg)
@@ -439,7 +443,7 @@ pub async fn send(
     let title_after = req.parent_id.is_none() && chat.title == "New chat" && command.is_none();
     let desktop = desktop_session(&state, &user, device, req.desktop.as_ref()).await;
     let command = command.map(String::from);
-    stream_answer(&state, user, client, settings, &chat, model, user_msg, assistant_msg, web, knowledge, req.effort, title_after, desktop, command).await
+    stream_answer(&state, user, client, settings, &chat, model, user_msg, assistant_msg, web, knowledge, mcp, req.effort, title_after, desktop, command).await
 }
 
 #[derive(Deserialize)]
@@ -450,6 +454,7 @@ pub struct RegenerateRequest {
     model_id: Option<Uuid>,
     web_search: Option<bool>,
     knowledge: Option<bool>,
+    mcp: Option<bool>,
     effort: Option<String>,
     desktop: Option<crate::desktop::Wanted>,
 }
@@ -503,8 +508,9 @@ pub async fn regenerate(
     .await;
     let web = req.web_search.unwrap_or_else(|| chat.settings["webSearch"].as_bool().unwrap_or(false));
     let knowledge = req.knowledge.unwrap_or_else(|| chat.settings["knowledge"].as_bool().unwrap_or(false));
+    let mcp = req.mcp.unwrap_or_else(|| chat.settings["mcp"].as_bool().unwrap_or(false));
     let desktop = desktop_session(&state, &user, device, req.desktop.as_ref()).await;
-    stream_answer(&state, user, client, settings, &chat, model, m.id, assistant_msg, web, knowledge, req.effort, false, desktop, None).await
+    stream_answer(&state, user, client, settings, &chat, model, m.id, assistant_msg, web, knowledge, mcp, req.effort, false, desktop, None).await
 }
 
 async fn stream_answer(
@@ -518,6 +524,7 @@ async fn stream_answer(
     assistant_msg: Uuid,
     web: bool,
     knowledge: bool,
+    mcp: bool,
     effort: Option<String>,
     title_after: bool,
     desktop: Option<crate::desktop::Session>,
@@ -542,6 +549,7 @@ async fn stream_answer(
         assistant_msg,
         web,
         knowledge,
+        mcp,
         chat_system: chat.system_prompt.clone(),
         project,
         effort,

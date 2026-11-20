@@ -24,6 +24,10 @@ pub struct Inner {
     pub devices: DashMap<Uuid, Arc<crate::desktop::Device>>,
     /// answers Claude Code is writing on this replica, by the token of their MCP endpoint
     pub mcp_runs: DashMap<String, Arc<crate::chat::McpRun>>,
+    /// MCP servers of the organization started on this replica
+    pub mcp: crate::mcp::Pool,
+    /// tool calls waiting for the person to allow them, by the call's id
+    pub approvals: DashMap<String, crate::mcp::Pending>,
     /// set on SIGTERM
     pub shutting_down: std::sync::atomic::AtomicBool,
 }
@@ -52,6 +56,8 @@ impl AppState {
                 live: DashMap::new(),
                 devices: DashMap::new(),
                 mcp_runs: DashMap::new(),
+                mcp: Default::default(),
+                approvals: DashMap::new(),
                 shutting_down: Default::default(),
             }),
         })

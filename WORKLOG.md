@@ -149,13 +149,39 @@ Claude Code as a backend (same day): provider kind `claude_code` (migration 0005
 - Open: auditors don't see a project's files from a conversation; no search inside files (all of
   it is sent each time); the OpenAI-compatible API has no projects
 
+### MCP servers on the server side (2026-11-20)
+- `mcp_servers`, `mcp_server_groups` (migration 0007): like local connectors (`mcp_stdio` /
+  `mcp_http`, tool allow-list, `ask`/`auto`, everyone or groups), plus `secrets_enc`: env and
+  headers encrypted with the provider-key cipher; the admin API only returns their names
+- `mcp.rs`: async MCP client (stdio: one JSON-RPC message per line; streamable HTTP: JSON or SSE
+  answer, `mcp-session-id`, a forgotten session restarts the connection). `Pool` keeps one
+  connection per server and replica, restarted when `updated_at` changes or it died. Programs get
+  `env_clear()` plus PATH/HOME/locale/proxy and their own env, run in `AGORA_MCP_DIR/<id>`;
+  `AGORA_MCP_STDIO=false` refuses them
+- Chat: `mcp` flag on send/regenerate (stored in `chats.settings`, absent = off, so the desktop
+  app doesn't get them until it sends it). Tools named `<server>__<tool>`; read-only (by the
+  server's `readOnlyHint`) auto calls run in parallel; at least 20 tool calls per answer when
+  offered; Claude Code gets them through `/api/mcp/{token}` like the others
+- Approval: the part goes out with status `asking`; `POST /api/tool-calls/{id}/decision` (only
+  the chat's owner, same replica) answers a oneshot in `state.approvals`; 10 minutes, then
+  `timeout`. Grant re-checked per call. Recorded in `tool_events` (feature `mcp`, no device) and
+  audit (`mcp.tool`, `mcp.decision`, `mcp.server_*`)
+- Web: Administration → MCP servers (list, dialog with *Check the connection* and tool
+  checkboxes, tool activity), toggle in the message box, Allow/Decline on the call; help page
+- Verified: unit test with a shell MCP server (env passed, server env not); end to end with a
+  mock model and a mock HTTP MCP server (401 without the header, stored secret reused for checks,
+  allow, decline, auto, toggle off, withdrawn access, allow-list), a stdio server through the
+  running server, and in Chromium. Not verified: a real MCP server, a real model, Claude Code
+- Open: credentials are the organization's, not per person (no OAuth per user); approval and
+  stop only reach the replica running the answer; the desktop app doesn't send `mcp` yet
+
 ### Next
 - Desktop review, server side: a device token is a full account credential (can approve another
   device, create API tokens, use admin routes): restrict what `agd_` tokens may call; group and
   user changes in `routes/admin.rs` don't push policies; `tool_events.input` ignores the
   `audit_content` setting; `login_start` rate limit is per IP behind a proxy
 - Integration tests in `crates/server/tests` (mock provider, fresh database per test)
-- TaskCraft connector once its API is known; MCP servers as tools on the server side
+- TaskCraft connector once its API is known; per-person credentials (OAuth) for MCP servers; `mcp` in the desktop app
 - Desktop: packages and installers, replay of tool results for non-Claude models, calls routed between replicas
 - File attachments (images, PDFs), knowledge bases of Agora's own (pgvector)
 - TOTP/passkeys (port from WikiCraft), SIEM export of audit events, budget alerts

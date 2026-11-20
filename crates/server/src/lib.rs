@@ -13,6 +13,7 @@ pub mod desktop;
 pub mod error;
 pub mod llm;
 pub mod maintenance;
+pub mod mcp;
 pub mod routes;
 pub mod settings;
 pub mod sso;

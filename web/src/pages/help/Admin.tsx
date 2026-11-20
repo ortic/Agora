@@ -239,6 +239,47 @@ export function Sources() {
   )
 }
 
+/** MCP servers of the organization. */
+export function McpServers() {
+  return (
+    <>
+      <p className="muted">
+        Model Context Protocol servers give models the tools of your services: a ticket system, a CRM, a database, an internal API. Under{' '}
+        <Link to="/admin/mcp">MCP servers</Link> you add the servers the Agora server connects to; their tools are then available in every chat of the people
+        you grant them to, in the web app too.
+      </p>
+      <Section title="Adding a server">
+        <Options
+          head={['Setting', 'What it decides']}
+          rows={[
+            ['Kind', 'An MCP server at a URL (streamable HTTP), or a program the Agora server starts (a command and its arguments; it has to be installed on the server).'],
+            ['Headers or environment', 'Credentials such as Authorization: Bearer … or API_KEY=…. Stored encrypted and never shown again; Replace sets new ones.'],
+            ['Tools', 'Check the connection lists what the server offers. Allow all of its tools (also ones it adds later) or only the ones you tick.'],
+            ['Before a tool runs', 'The person allows each call in the chat (Allow / Decline under the call), or calls run without asking.'],
+            ['Who may use it', 'Everyone, or chosen groups. Switching it off or withdrawing it stops calls at once, also in an answer being written.'],
+          ]}
+        />
+      </Section>
+      <Section title="In the chat">
+        <ul>
+          <li>People with at least one server get a toggle in the message box (the server's name, or Tools), on by default; it needs a model that can use tools.</li>
+          <li>Each call shows in the answer with its input and output. A call that waits for the person shows Allow and Decline; without an answer it lapses after ten minutes.</li>
+          <li>An answer may make at least 20 tool calls when these tools are offered.</li>
+        </ul>
+      </Section>
+      <Section title="What to keep in mind">
+        <ul>
+          <li>Everyone who may use a server acts with its credentials, not their own. Give it an account with only the access those people should have, and grant it to the groups that need it.</li>
+          <li>A program runs on the Agora server as its user, in a folder of its own, with none of the server's environment besides PATH, HOME, locale and proxy settings. Start the server with <code>AGORA_MCP_STDIO=false</code> to allow servers at a URL only.</li>
+          <li>What a tool returns goes to the model as it is; a server that returns text from outside (mails, web pages) can try to steer the model. Have people confirm calls that change things.</li>
+          <li>Every call is listed under Tool activity on the same page and in the audit log (mcp.tool, and mcp.decision for Allow and Decline).</li>
+          <li>For MCP servers on people's own computers (local files, desktop applications), use local connectors of Agora Desktop instead.</li>
+        </ul>
+      </Section>
+    </>
+  )
+}
+
 /** Audit and retention. */
 export function Audit() {
   return (
@@ -346,6 +387,7 @@ docker compose up -d
             [<code>AGORA_FETCH_ALLOW_PRIVATE</code>, 'Let models open addresses in private networks (false)'],
             [<code>AGORA_MODEL_TIMEOUT_SECS</code>, 'How long to wait for a model to start answering, and between pieces of an answer (300)'],
             [<><code>AGORA_CLAUDE_BIN</code>, <code>AGORA_CLAUDE_DIR</code></>, 'Claude Code, for models that answer through it, and the folder it runs in (claude, ./data/claude-code)'],
+            [<><code>AGORA_MCP_STDIO</code>, <code>AGORA_MCP_DIR</code></>, 'Whether MCP servers may be programs the server starts (true; false: servers at a URL only), and where they run (./data/mcp)'],
             [<code>AGORA_LOG_FORMAT</code>, 'text, or json for log collectors'],
           ]}
         />

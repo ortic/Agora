@@ -175,7 +175,7 @@ export interface Chat {
   modelId: string | null
   systemPrompt: string | null
   projectId: string | null
-  settings: { webSearch?: boolean; knowledge?: boolean; effort?: string }
+  settings: { webSearch?: boolean; knowledge?: boolean; mcp?: boolean; effort?: string }
   leafId: string | null
   pinned: boolean
   createdAt: string
@@ -205,11 +205,13 @@ export interface ToolPart {
   id: string
   /** the sub-agent that made the call */
   agent?: string | null
-  feature: 'code' | 'browser' | 'connector'
+  /** mcp: a tool of one of the organization's MCP servers (run by the server) */
+  feature: 'code' | 'browser' | 'connector' | 'mcp'
   connector: string | null
   tool: string
   input: Record<string, unknown> | null
-  status: 'running' | 'done' | 'error' | 'denied' | 'blocked' | 'timeout'
+  /** asking: waits for the person to allow it */
+  status: 'asking' | 'running' | 'done' | 'error' | 'denied' | 'blocked' | 'timeout'
   output?: string
   error?: string | null
   /** images and PDFs the tool showed the model */
@@ -264,6 +266,14 @@ export type StreamEvent =
   | { type: 'done'; message: Message }
   | { type: 'title'; title: string }
   | { type: 'end' }
+
+/** An MCP server of the organization the person may use. */
+export interface McpServerInfo {
+  id: string
+  name: string
+  description: string | null
+  approval: 'ask' | 'auto'
+}
 
 export interface ConnectorInfo {
   id: string

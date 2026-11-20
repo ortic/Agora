@@ -71,6 +71,15 @@ pub struct Config {
     #[arg(long, env = "AGORA_CLAUDE_DIR", default_value = "./data/claude-code")]
     pub claude_dir: PathBuf,
 
+    /// May administrators define MCP servers that are programs started on this server
+    /// (`mcp_stdio`)? MCP servers at a URL are always possible.
+    #[arg(long, env = "AGORA_MCP_STDIO", default_value_t = true, action = clap::ArgAction::Set)]
+    pub mcp_stdio: bool,
+
+    /// Where MCP server programs run: a folder per server.
+    #[arg(long, env = "AGORA_MCP_DIR", default_value = "./data/mcp")]
+    pub mcp_dir: PathBuf,
+
     /// Log format: `text` or `json`.
     #[arg(long, env = "AGORA_LOG_FORMAT", default_value = "text")]
     pub log_format: String,

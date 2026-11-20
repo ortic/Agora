@@ -143,6 +143,8 @@ pub struct Job {
     pub web: bool,
     /// let the model search the person's connected knowledge sources
     pub knowledge: bool,
+    /// let the model use the tools of the organization's MCP servers granted to the person
+    pub mcp: bool,
     pub chat_system: Option<String>,
     /// the chat's project: its instructions and files
     pub project: Option<crate::routes::projects::Context>,
@@ -176,6 +178,9 @@ const WEB_SEARCH: &str = "web_search";
 const FETCH_URL: &str = "fetch_url";
 /// Hands a piece of the work to a sub-agent (answers that use the desktop's tools).
 const TASK: &str = "task";
+/// Tool calls per answer at least, when MCP servers' tools are offered (web search alone has
+/// its own, often lower limit).
+const MCP_MIN_TOOL_CALLS: u32 = 20;
 const LIMIT_REACHED: &str = "Tool call limit reached for this answer. Answer with the information you already have.";
 
 const AGENT_NOTE: &str = "You are a sub-agent: another instance of the assistant gave you the task below and sees nothing of what you do except your \
@@ -220,6 +225,8 @@ struct Tooling<'a> {
     agent_calls: usize,
     search_key: Option<&'a str>,
     sources: &'a [crate::connectors::Linked],
+    /// tools of the organization's MCP servers
+    mcp: &'a [crate::mcp::McpTool],
     cancel: &'a CancellationToken,
     /// images and documents a tool call returned, until its result is built (by the call's address)
     media: &'a Mutex<HashMap<usize, Vec<llm::Media>>>,
@@ -433,7 +440,7 @@ fn with_project(job: &Job, messages: &[Msg]) -> Vec<Msg> {
     out
 }
 
-fn system_prompt(job: &Job, tools: bool, sources: &[crate::connectors::Linked]) -> String {
+fn system_prompt(job: &Job, tools: bool, sources: &[crate::connectors::Linked], mcp: &[crate::mcp::McpTool]) -> String {
     let mut parts: Vec<String> = Vec::new();
     if let Some(s) = job.settings.system_prompt.as_deref().filter(|s| !s.trim().is_empty()) {
         parts.push(s.trim().to_string());
@@ -456,6 +463,18 @@ fn system_prompt(job: &Job, tools: bool, sources: &[crate::connectors::Linked]) 
         ctx.push_str(&format!(
             " You can search the organization's internal knowledge ({}). Search it first for questions about the organization, its projects, processes and people; base your answer on what you find and cite the pages as Markdown links. Say so when it has nothing on the question.",
             names.join(", ")
+        ));
+    }
+    let mut servers: Vec<&str> = Vec::new();
+    for t in mcp {
+        if !servers.contains(&t.server_name.as_str()) {
+            servers.push(&t.server_name);
+        }
+    }
+    if !servers.is_empty() {
+        ctx.push_str(&format!(
+            " Tools of the organization's services are available to you ({}). Some calls need the user's confirmation; when they decline one, don't retry it.",
+            servers.join(", ")
         ));
     }
     if let Some(d) = job.desktop.as_ref().filter(|_| job.model.cap("tools")) {
@@ -487,6 +506,8 @@ async fn run(job: Job, hub: Arc<Hub>, cancel: CancellationToken) {
     let mut tools = tool_defs(engine, fetch);
     let sources = if job.knowledge && job.model.cap("tools") { crate::connectors::linked(&state, job.user.id).await.unwrap_or_default() } else { vec![] };
     tools.extend(sources.iter().map(crate::connectors::tool_def));
+    let mcp = if job.mcp && job.model.cap("tools") { crate::mcp::tools_for(&state, job.user.id).await } else { vec![] };
+    tools.extend(mcp.iter().filter(|t| !tools.iter().any(|x| x.name == t.def.name)).map(|t| t.def.clone()).collect::<Vec<_>>());
     // tools on the person's computer; ours win when a name is taken
     let desktop = job.desktop.as_ref().filter(|_| job.model.cap("tools"));
     if let Some(d) = desktop {
@@ -500,6 +521,7 @@ async fn run(job: Job, hub: Arc<Hub>, cancel: CancellationToken) {
     let agent_calls = desktop.map_or(0, |d| d.policy.general.max_subagent_tool_calls.clamp(1, 200)) as usize;
     let max_calls = match desktop {
         Some(d) => d.policy.general.max_tool_calls.clamp(1, 500),
+        None if !mcp.is_empty() => ws.max_tool_calls.max(MCP_MIN_TOOL_CALLS),
         None => ws.max_tool_calls.max(1),
     } as usize;
     let search_key = ws.api_key_enc.as_deref().and_then(base64_decode).and_then(|k| state.secrets.decrypt(&k).ok());
@@ -544,7 +566,7 @@ async fn run(job: Job, hub: Arc<Hub>, cancel: CancellationToken) {
     };
     let mut req = llm::Request {
         model: job.model.model.clone(),
-        system: Some(system_prompt(&job, engine || native, &sources)),
+        system: Some(system_prompt(&job, engine || native, &sources, &mcp)),
         messages: vec![],
         tools: tools.clone(),
         native_search: native.then(|| llm::NativeSearch { max_uses: ws.max_tool_calls.max(1), blocked_domains: ws.blocked_domains.clone() }),
@@ -570,6 +592,7 @@ async fn run(job: Job, hub: Arc<Hub>, cancel: CancellationToken) {
         agent_calls,
         search_key: search_key.as_deref(),
         sources: &sources,
+        mcp: &mcp,
         cancel: &cancel,
         media: &media,
         spent: &spent,
@@ -714,8 +737,8 @@ async fn run(job: Job, hub: Arc<Hub>, cancel: CancellationToken) {
                 let mut i = 0;
                 while i < calls.len() {
                     let mut j = i + 1;
-                    if reads_only(&job, &sources, &calls[i].name) {
-                        while j < calls.len() && reads_only(&job, &sources, &calls[j].name) {
+                    if reads_only(&job, &sources, &mcp, &calls[i].name) {
+                        while j < calls.len() && reads_only(&job, &sources, &mcp, &calls[j].name) {
                             j += 1;
                         }
                     }
@@ -814,9 +837,13 @@ struct Outcome {
 
 /// Whether a tool only reads (searches, page fetches, reading the project, sub-agents): such
 /// calls of one turn run at the same time.
-fn reads_only(job: &Job, sources: &[crate::connectors::Linked], name: &str) -> bool {
+fn reads_only(job: &Job, sources: &[crate::connectors::Linked], mcp: &[crate::mcp::McpTool], name: &str) -> bool {
     if matches!(name, WEB_SEARCH | FETCH_URL | TASK) || sources.iter().any(|s| s.tool == name) {
         return true;
+    }
+    // (a call that waits for the person's confirmation runs on its own)
+    if let Some(t) = mcp.iter().find(|t| t.def.name == name) {
+        return t.read_only && t.approval == "auto";
     }
     job.desktop.as_ref().and_then(|d| d.find(name)).is_some_and(|t| {
         t.feature == "code" && matches!(t.remote_name.as_str(), "collect_files" | "list_files" | "read_file" | "search_files" | "command_output")
@@ -906,6 +933,9 @@ async fn run_tool(job: &Job, hub: &Hub, call: &ToolCall, t: &Tooling<'_>, agent:
     let ws = &job.settings.web_search;
     let started = Instant::now();
     let ours = call.name == WEB_SEARCH || call.name == FETCH_URL || sources.iter().any(|s| s.tool == call.name);
+    if !ours && let Some(tool) = t.mcp.iter().find(|m| m.def.name == call.name) {
+        return run_mcp_tool(job, hub, tool, call, t, agent).await;
+    }
     if !ours && let Some(session) = &job.desktop {
         if call.name == TASK && agent.is_none() && session.policy.general.subagents {
             return run_agent(job, hub, call, t).await;
@@ -1058,6 +1088,88 @@ async fn run_desktop_tool(
     )
     .await;
     (done.content, done.is_error)
+}
+
+/// Runs a tool of one of the organization's MCP servers: asks the person first when the server
+/// wants that, shows the call in the chat and records it.
+async fn run_mcp_tool(job: &Job, hub: &Hub, tool: &crate::mcp::McpTool, call: &ToolCall, t: &Tooling<'_>, agent: Option<&str>) -> (String, bool) {
+    let started = Instant::now();
+    let state = &job.state;
+    // an id of our own: the model's ids repeat between answers and sub-agents
+    let uid = new_id().to_string();
+    let input = &crate::desktop::scrub(&call.input);
+    let part = |status: &str, output: &str, error: Option<&str>| {
+        json!({ "type": "part", "part": {
+            "type": "tool", "id": uid, "agent": agent, "feature": "mcp", "connector": tool.server_name,
+            "tool": tool.remote_name, "input": input, "status": status, "output": crate::desktop::shown(output), "error": error } })
+    };
+    let (out, status) = if tool.approval == "ask" {
+        hub.publish(part("asking", "", None));
+        match crate::mcp::ask(state, job.user.id, &uid, t.cancel).await {
+            Some(true) => {
+                hub.publish(part("running", "", None));
+                crate::mcp::call(state, job.user.id, tool, input, t.cancel).await
+            }
+            Some(false) => (crate::mcp::Output { text: "The user declined this action.".into(), is_error: true, media: vec![] }, "denied"),
+            None if t.cancel.is_cancelled() => (crate::mcp::Output { text: "Stopped by the user.".into(), is_error: true, media: vec![] }, "error"),
+            None => {
+                (crate::mcp::Output { text: "The user didn't confirm this action in time; it didn't run.".into(), is_error: true, media: vec![] }, "timeout")
+            }
+        }
+    } else {
+        hub.publish(part("running", "", None));
+        crate::mcp::call(state, job.user.id, tool, input, t.cancel).await
+    };
+    let mut text = out.text;
+    let mut ended = match status {
+        "ok" => part("done", &text, None),
+        s => part(s, "", Some(&text)),
+    };
+    if !out.media.is_empty() && status == "ok" {
+        ended["part"]["media"] = json!(out.media.iter().map(|m| json!({ "name": m.name, "mediaType": m.media_type })).collect::<Vec<_>>());
+        if job.model.cap("vision") {
+            t.media.lock().expect("media").insert(call as *const ToolCall as usize, out.media);
+        } else {
+            text.push_str("\n[The images weren't passed on: this model can't read images.]");
+        }
+    }
+    hub.publish(ended);
+    let ms = started.elapsed().as_millis();
+    let res = sqlx::query(
+        "INSERT INTO tool_events (id, user_id, chat_id, message_id, feature, connector_id, connector, tool, input, status, error, result_chars, duration_ms)
+         VALUES ($1, $2, $3, $4, 'mcp', $5, $6, $7, $8, $9, $10, $11, $12)",
+    )
+    .bind(new_id())
+    .bind(job.user.id)
+    .bind(job.chat_id)
+    .bind(job.assistant_msg)
+    .bind(tool.server)
+    .bind(&tool.server_name)
+    .bind(&tool.remote_name)
+    .bind(input)
+    .bind(status)
+    .bind((status != "ok").then(|| text.chars().take(2000).collect::<String>()))
+    .bind(text.chars().count().min(i32::MAX as usize) as i32)
+    .bind(ms.min(i32::MAX as u128) as i32)
+    .execute(&state.db)
+    .await;
+    if let Err(e) = res {
+        tracing::error!("tool event record failed: {e}");
+    }
+    let full = job.settings.audit_content == "full";
+    crate::audit::log(
+        state,
+        Some(&job.user),
+        Some(&job.client),
+        "mcp.tool",
+        Some(("chat", job.chat_id.to_string())),
+        json!({
+            "serverId": tool.server, "server": tool.server_name, "tool": tool.remote_name, "input": full.then_some(input), "status": status,
+            "resultChars": text.chars().count(), "messageId": job.assistant_msg, "durationMs": ms as u64,
+        }),
+    )
+    .await;
+    (text, status != "ok")
 }
 
 /// Stores a search or fetch and audits it.

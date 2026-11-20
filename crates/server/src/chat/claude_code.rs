@@ -32,6 +32,7 @@ pub struct McpRun {
     http: reqwest::Client,
     ep: llm::Endpoint,
     sources: Vec<crate::connectors::Linked>,
+    mcp: Vec<crate::mcp::McpTool>,
     search_key: Option<String>,
     tools: Vec<ToolDef>,
     /// tool calls left for this answer
@@ -104,6 +105,7 @@ async fn call_tool(run: &McpRun, params: &Value) -> Value {
         agent_calls: 0,
         search_key: run.search_key.as_deref(),
         sources: &run.sources,
+        mcp: &run.mcp,
         cancel: &run.cancel,
         media: &run.media,
         spent: &run.spent,
@@ -185,6 +187,8 @@ pub(super) async fn run(job: Job, hub: Arc<Hub>, cancel: CancellationToken) {
     let mut tools = tool_defs(engine, engine && ws.fetch_enabled);
     let sources = if job.knowledge && can { crate::connectors::linked(&state, job.user.id).await.unwrap_or_default() } else { vec![] };
     tools.extend(sources.iter().map(crate::connectors::tool_def));
+    let mcp = if job.mcp && can { crate::mcp::tools_for(&state, job.user.id).await } else { vec![] };
+    tools.extend(mcp.iter().filter(|t| !tools.iter().any(|x| x.name == t.def.name)).map(|t| t.def.clone()).collect::<Vec<_>>());
     let desktop = job.desktop.as_ref().filter(|_| can);
     if let Some(d) = desktop {
         let local: Vec<_> = d.tools.iter().filter(|t| !tools.iter().any(|x| x.name == t.def.name)).map(|t| t.def.clone()).collect();
@@ -192,11 +196,14 @@ pub(super) async fn run(job: Job, hub: Arc<Hub>, cancel: CancellationToken) {
     }
     let max_calls = match desktop {
         Some(d) => d.policy.general.max_tool_calls.clamp(1, 500),
+        None if !mcp.is_empty() => ws.max_tool_calls.max(MCP_MIN_TOOL_CALLS),
         None => ws.max_tool_calls.max(1),
     } as usize;
     let subagents = desktop.is_some_and(|d| d.policy.general.subagents);
     let tool_secs = desktop.map_or(600, |d| d.policy.general.tool_timeout_secs.clamp(10, 86_400));
-    let system = system_prompt(&job, engine, &sources);
+    // a call of an MCP server may wait for the person's confirmation, then run
+    let tool_secs = if mcp.is_empty() { tool_secs } else { tool_secs.max((crate::mcp::APPROVAL_TIMEOUT + crate::mcp::CALL_TIMEOUT).as_secs()) };
+    let system = system_prompt(&job, engine, &sources, &mcp);
 
     let flushing = CancellationToken::new();
     {
@@ -262,6 +269,7 @@ pub(super) async fn run(job: Job, hub: Arc<Hub>, cancel: CancellationToken) {
         http: llm::client(state.config.model_timeout_secs),
         ep: ep.clone(),
         sources,
+        mcp,
         search_key,
         tools,
         budget: Mutex::new(max_calls),

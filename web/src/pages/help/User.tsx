@@ -38,6 +38,7 @@ export function Chatting({ me }: { me: Me }) {
           <li><b>Images and PDFs:</b> the Attach button, or drop or paste them into the message box. Up to 8 files, images up to 5 MB, 20 MB per message. The button is off for models that can't read them.</li>
           {me.webSearch && <li><b>Web search:</b> with the toggle on, the model decides when to search and which pages to open, and cites them. Searches and page reads are recorded.</li>}
           <li><b>Knowledge sources:</b> if your organization connected a wiki, connect it for yourself once under <Link to="/settings">Settings &amp; usage</Link> with a read-only token of your own. A toggle with the wiki's name then lets the model search it with your permissions.</li>
+          <li><b>Tools:</b> if your organization connected services (MCP servers), a toggle with their name lets the model use them. Each call shows in the answer; where your organization wants it, the call waits until you press Allow or Decline.</li>
           <li><b>Effort:</b> for models that think before answering, how hard they think. More effort gives better answers to hard questions and costs more.</li>
           {me.allowUserSystemPrompt && <li><b>Instructions for a chat:</b> the sliders icon above the conversation holds instructions that apply to that chat only.</li>}
         </ul>

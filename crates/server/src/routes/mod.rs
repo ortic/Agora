@@ -3,6 +3,7 @@ pub mod auth;
 pub mod chats;
 pub mod connectors;
 pub mod desktop;
+pub mod mcp;
 pub mod openai_api;
 pub mod projects;
 
@@ -50,6 +51,12 @@ pub fn api() -> Router<AppState> {
         .route("/connectors/{id}/token", axum::routing::put(connectors::connect).delete(connectors::disconnect))
         .route("/admin/connectors", get(connectors::admin_list).post(connectors::admin_create))
         .route("/admin/connectors/{id}", patch(connectors::admin_update).delete(connectors::admin_delete))
+        // MCP servers of the organization: tools for models, calls people confirm
+        .route("/mcp-servers", get(mcp::mine))
+        .route("/tool-calls/{id}/decision", post(mcp::decide))
+        .route("/admin/mcp-servers", get(mcp::admin_list).post(mcp::admin_create))
+        .route("/admin/mcp-servers/check", post(mcp::admin_check))
+        .route("/admin/mcp-servers/{id}", patch(mcp::admin_update).delete(mcp::admin_delete))
         // Agora Desktop: signing a device in, its connection, administration
         .route("/desktop/login/start", post(desktop::login_start))
         .route("/desktop/login/poll", post(desktop::login_poll))

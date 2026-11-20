@@ -40,6 +40,9 @@ when they roll such a tool out.
 
 **Knowledge (RAG)**
 - **WikiCraft** as a knowledge source: the model searches the wiki while answering (hybrid keyword + semantic retrieval) and cites the pages
+
+**Tools of your services (MCP)**
+- **MCP servers** the Agora server connects to (at a URL, or a program it starts): their tools in every chat, the web app included, for the groups you choose; only the tools you allow; optionally each call confirmed by the person in the chat; every call recorded
 - Everyone connects their **own read-only token**, so the wiki's permissions apply to every search: Agora never sees a page the person couldn't open
 
 **Web search, tracked**
@@ -146,6 +149,27 @@ many concurrent users.
 For semantic (not only keyword) retrieval, set up embeddings in WikiCraft
 (`WIKICRAFT_EMBEDDINGS_URL`, e.g. a local Ollama embedding model).
 
+## Tools of your services (MCP servers)
+
+*Administration → MCP servers → Add a server*: a Model Context Protocol server the Agora server
+connects to.
+
+| Setting | What it decides |
+|---|---|
+| **Kind** | an MCP server at a URL (streamable HTTP), or a program the server starts (stdio: command and arguments) |
+| **Headers / environment** | credentials (`Authorization: Bearer …`, `API_KEY=…`): stored encrypted, never shown again; everyone who may use the server acts with them |
+| **Tools** | *Check the connection* lists the server's tools; all of them, or only the ones you tick |
+| **Before a tool runs** | the person allows each call in the chat, or calls run without asking |
+| **Who may use it** | everyone, or chosen groups |
+
+People get a toggle with the server's name (or *Tools*) in the message box. Calls show in the
+chat, go to *Tool activity* on the same page and to the audit log (`mcp.tool`, `mcp.decision`).
+A server is started (or connected) on first use and kept; a change to its settings starts it
+anew. Programs run in a folder of their own under `AGORA_MCP_DIR`, with an empty environment
+except `PATH`, `HOME`, locale and proxy variables and what you configure; `AGORA_MCP_STDIO=false`
+allows servers at a URL only. For MCP servers on people's own computers, use local connectors
+(Agora Desktop).
+
 ## Configuration
 
 Everything that changes at runtime (models, groups, budgets, web search, retention, knowledge
@@ -161,6 +185,7 @@ sources) is set in the admin UI. The server itself takes flags or environment va
 | `AGORA_TRUST_PROXY` | `false` | take client addresses from `X-Forwarded-For` |
 | `AGORA_SESSION_DAYS` / `AGORA_SESSION_IDLE_MINUTES` | `14` / `0` | session lifetime, idle timeout |
 | `AGORA_CLAUDE_BIN` / `AGORA_CLAUDE_DIR` | `claude` / `./data/claude-code` | Claude Code, for models that answer through it, and where it runs |
+| `AGORA_MCP_STDIO` / `AGORA_MCP_DIR` | `true` / `./data/mcp` | may admins define MCP servers that are programs started on the server; where they run |
 | `AGORA_AUTH_PROVIDERS` / `_FILE` | — | single sign-on providers (JSON, below) |
 | `AGORA_DISABLE_PASSWORD_LOGIN` | `false` | SSO only (LDAP still works) |
 | `AGORA_FETCH_ALLOW_PRIVATE` | `false` | let models open private network addresses |
